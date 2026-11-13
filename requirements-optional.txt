@@ -1,0 +1,8 @@
+# Optional: decoding of JPEG-family compressed DICOM (pydicom MIT, GDCM BSD).
+# Switched on automatically when installed; the Windows executable bundles both.
+pydicom>=2.4
+python-gdcm>=3.0.20
+# Development: tests and the validation figures
+pytest>=7
+requests>=2.28
+matplotlib>=3.7

@@ -1,0 +1,78 @@
+name: windows-build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (build machine only; the .exe needs nothing installed)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.10,<7" pytest requests pydicom python-gdcm
+
+      - name: Unit tests on Windows (includes the network-guard tests)
+        run: python -m pytest -q
+
+      - name: Static network audit of the program code
+        run: python tools/audit_network.py
+
+      - name: Self-test from source on Windows
+        run: python -m sliceweave selftest
+
+      - name: Build SliceWeave.exe and portable folder
+        run: python packaging/build_windows.py
+
+      - name: Block all outbound network traffic for both executables (Windows Firewall)
+        shell: pwsh
+        run: |
+          $one = (Resolve-Path dist/SliceWeave.exe).Path
+          $dir = (Resolve-Path dist/portable/SliceWeave/SliceWeave.exe).Path
+          New-NetFirewallRule -DisplayName "SliceWeave block onefile" -Direction Outbound -Program $one -Action Block | Out-Null
+          New-NetFirewallRule -DisplayName "SliceWeave block portable" -Direction Outbound -Program $dir -Action Block | Out-Null
+          Get-NetFirewallProfile | Select-Object Name, Enabled | Format-Table
+          Get-NetFirewallRule -DisplayName "SliceWeave*" | Select-Object DisplayName, Enabled, Direction, Action | Format-Table
+
+      - name: Test the one-file executable with network blocked (doctor, DICOM, server, self-test; traced)
+        env:
+          SLICEWEAVE_NETTRACE: ${{ github.workspace }}/nettrace-onefile.jsonl
+        run: python packaging/smoke_test_exe.py dist/SliceWeave.exe --full --report=smoke-report-onefile.json
+
+      - name: Test the portable executable with network blocked (doctor, DICOM, server; traced)
+        env:
+          SLICEWEAVE_NETTRACE: ${{ github.workspace }}/nettrace-portable.jsonl
+        run: python packaging/smoke_test_exe.py dist/portable/SliceWeave/SliceWeave.exe --report=smoke-report-portable.json
+
+      - name: Trace summary - every network event of the executables targeted this computer only
+        run: |
+          python tools/audit_network.py --trace nettrace-onefile.jsonl
+          python tools/audit_network.py --trace nettrace-portable.jsonl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SliceWeave-windows
+          path: |
+            dist/SliceWeave.exe
+            dist/SliceWeave-portable.zip
+            dist/README-WINDOWS.txt
+            dist/SHA256SUMS.txt
+            dist/build-report.json
+            smoke-report-onefile.json
+            smoke-report-portable.json
+            nettrace-onefile.jsonl
+            nettrace-portable.jsonl
+          retention-days: 90

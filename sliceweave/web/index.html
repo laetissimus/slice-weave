@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SliceWeave</title>
+<link rel="icon" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>SliceWeave</h1>
+    <span class="tags" id="tags">3-plane HASTE <i>&rarr;</i> isotropic <i>&middot;</i> offline <i>&middot;</i> DICOM <i>&middot;</i> NIfTI</span>
+    <span class="case" id="caseLabel"></span>
+  </div>
+  <div class="topright">
+    <span class="ruo" id="banner" title="Research use only - not for clinical diagnosis">Research use only</span>
+    <nav class="views" id="views">
+      <button data-view="axial">Axial</button><button data-view="coronal">Coronal</button><button data-view="sagittal">Sagittal</button><button data-view="three" class="on">3-plane</button><button data-view="report" class="sep">Report</button>
+    </nav>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="left">
+    <section id="secCase">
+      <h2><span class="step">1</span>Case <span class="state" id="caseState"></span></h2>
+      <label class="field">Open a case <select id="caseSel"><option value="">No case selected</option></select></label>
+      <div id="caseMeta" class="muted small"></div>
+      <div id="retention" class="note" hidden></div>
+      <details id="newCaseBox"><summary>New case</summary>
+        <form id="newCase" class="form">
+          <p class="muted small">Use a coded study ID, never an MRN or a name. IDs with 6 or more consecutive digits, or containing identifiers found in the images, are refused.</p>
+          <label class="field">Coded case ID <input name="case_id" required placeholder="e.g. FET-012" autocomplete="off"></label>
+          <div class="row left"><button type="submit" class="primary">Create case</button></div>
+          <div class="msg" id="newCaseMsg"></div>
+        </form>
+      </details>
+      <details><summary>Demo with simulated data</summary>
+        <p class="muted small">Creates a case from a synthetic phantom (no patient data): three adult stacks, or six fetal stacks with slice motion.</p>
+        <div class="demo"><button id="demoAdult">Adult demo</button><button id="demoFetal">Fetal demo</button></div>
+      </details>
+    </section>
+
+    <section id="secLoad">
+      <h2><span class="step">2</span>Load stacks</h2>
+      <div class="drop" id="drop">
+        <b>Drop DICOM folders, a .zip or NIfTI files</b>
+        <span>Axial, coronal and sagittal 2-D series (HASTE / SSFSE / SSh-TSE). Optional: brain masks (NIfTI named <span class="mono">*mask*</span>) and dcm2niix JSON sidecars.</span>
+        <div class="row"><button id="pickFolder">Choose folder</button><button id="pickFiles">Choose files</button><button id="btnClearStage" class="ghost" title="Forget the files staged for this case">Clear</button></div>
+        <input type="file" id="folderInput" webkitdirectory directory multiple hidden>
+        <input type="file" id="filesInput" multiple hidden>
+      </div>
+      <ul class="staged" id="staged"></ul>
+      <div class="row left"><button id="btnImport" class="primary" disabled>De-identify and import</button></div>
+      <div class="msg" id="importMsg"></div>
+      <p class="muted small">Files are copied to SliceWeave's temporary folder, de-identified on import, and the copies deleted.</p>
+    </section>
+
+    <section id="secStacks">
+      <h2><span class="step">3</span>Stacks <span class="state" id="stackState"></span></h2>
+      <div id="stackTable"><p class="muted small">No stacks yet.</p></div>
+      <p class="hint">Ref = reference stack (sets the output orientation; suggested: least motion). Thickness drives the slice profile: correct it if the file has none (NIfTI without sidecar).</p>
+      <div class="msg" id="stackMsg"></div>
+    </section>
+
+    <section id="secPlan">
+      <h2><span class="step">4</span>Mode and region <span class="state" id="planState"></span></h2>
+      <div class="seg mode" id="modePick"><button data-mode="adult">Adult / paediatric brain</button><button data-mode="fetal">Fetal brain</button></div>
+      <p class="hint" id="modeHint"></p>
+      <div class="kv" id="roiInfo"></div>
+      <div class="row left">
+        <button id="btnRoiTool" title="Drag a rectangle on any view to set the region in that plane">Draw region</button>
+        <button id="btnRoiCenter" title="Move the region centre to the crosshair">Centre on cursor</button>
+        <button id="btnRoiReset" class="ghost">Reset</button>
+      </div>
+      <label class="field inline small">Shape <select id="roiShape"><option value="box">Box</option><option value="ellipsoid">Ellipsoid</option></select></label>
+      <div class="msg" id="planMsg"></div>
+    </section>
+
+    <section id="secSettings">
+      <h2><span class="step">5</span>Settings</h2>
+      <div class="grid2c">
+        <label class="field">Output voxel (mm)
+          <select id="setRes"><option>0.5</option><option>0.6</option><option>0.7</option><option>0.8</option><option>0.9</option><option>1.0</option><option>1.2</option><option>1.5</option></select></label>
+        <label class="field">Motion correction
+          <select id="setMotion"><option value="none">None</option><option value="stack">Between series</option><option value="slice">Slice-to-volume</option></select></label>
+        <label class="field">Cycles <input id="setCycles" type="number" min="0" max="8" step="1"></label>
+        <label class="field">Regularisation
+          <select id="setAlphaMode"><option value="auto">Automatic (noise)</option><option value="manual">Manual</option></select></label>
+        <label class="field" id="alphaField" hidden>Weight (alpha) <input id="setAlpha" type="number" min="0.01" step="0.1"></label>
+        <label class="field">Penalty
+          <select id="setReg"><option value="huber">Edge-preserving (Huber)</option><option value="tikhonov">Smooth (Tikhonov)</option></select></label>
+      </div>
+      <label class="check"><input type="checkbox" id="setOutlier"><span>Reject outlier slices<small>Slices that do not match the volume (motion during the echo train, signal loss) are excluded; pixels are down-weighted robustly.</small></span></label>
+      <label class="check"><input type="checkbox" id="setBias"><span>Correct intensity differences<small>Per-slice scaling and a smooth bias field per stack (coil sensitivity).</small></span></label>
+      <div class="kv" id="gridInfo"></div>
+    </section>
+
+    <section id="secRun">
+      <h2><span class="step">6</span>Reconstruct <span class="state" id="runState"></span></h2>
+      <div class="row left"><button id="btnRun" class="primary" disabled>Reconstruct</button><button id="btnCancel" class="ghost" hidden>Cancel</button></div>
+      <ul class="steps" id="steps"></ul>
+      <div class="msg" id="runMsg"></div>
+      <details><summary>Log</summary><pre class="log" id="log"></pre></details>
+    </section>
+  </aside>
+
+  <main class="center">
+    <div class="toolbar" id="toolbar">
+      <span class="seg whichseg" id="whichPick"><button data-which="overview" class="on">Inputs (full view)</button><button data-which="result">Result</button></span>
+      <label>Image <select id="baseSel" disabled></select></label>
+      <label title="Press B to switch between the image and this one">Compare (B) <select id="cmpSel" disabled></select></label>
+      <label><input type="checkbox" id="optCross" checked> Crosshair</label>
+      <label><input type="checkbox" id="optRoi" checked> Region</label>
+      <span class="spacer"></span>
+      <span id="cursorLine" class="mono small"></span>
+    </div>
+    <div class="viewer three" id="viewer">
+      <div class="view" data-view="axial"><canvas></canvas><span class="vlabel"></span><span class="orient l">R</span><span class="orient r">L</span></div>
+      <div class="view" data-view="coronal"><canvas></canvas><span class="vlabel"></span><span class="orient l">R</span><span class="orient r">L</span></div>
+      <div class="view" data-view="sagittal"><canvas></canvas><span class="vlabel"></span><span class="orient l">A</span><span class="orient r">P</span></div>
+      <div class="empty" id="viewerEmpty">Open a case, or create one and load stacks.<br><span class="small">Wheel or arrow keys: change slice. Right-drag: window/level. B: compare.</span></div>
+    </div>
+    <div class="page" id="reportPage" hidden><div class="doc" id="reportDoc"></div></div>
+  </main>
+
+  <aside class="right">
+    <section>
+      <h2>Result <span class="state" id="resState"></span></h2>
+      <div class="kv" id="resInfo"><span class="k">-</span><span class="v">no reconstruction yet</span></div>
+    </section>
+    <section id="secReorient">
+      <h2>Reorient <span class="state">optional</span></h2>
+      <p class="hint">Rotate the result about its centre (in its own axes), e.g. to show a fetal brain in standard planes. Resampled with cubic splines.</p>
+      <div class="slider"><span>X</span><input type="range" id="rx" min="-180" max="180" step="1" value="0"><span class="val" id="rxv">0</span></div>
+      <div class="slider"><span>Y</span><input type="range" id="ry" min="-180" max="180" step="1" value="0"><span class="val" id="ryv">0</span></div>
+      <div class="slider"><span>Z</span><input type="range" id="rz" min="-180" max="180" step="1" value="0"><span class="val" id="rzv">0</span></div>
+      <div class="row left"><button id="btnReorient" disabled>Apply</button><button id="btnReorientReset" class="ghost" disabled>Original</button></div>
+      <div class="msg" id="reoMsg"></div>
+    </section>
+    <section>
+      <h2>Export</h2>
+      <div class="exports">
+        <button id="expNifti" disabled>NIfTI (SRR)</button>
+        <button id="expAvg" disabled>NIfTI (average)</button>
+        <button id="expDicom" disabled title="De-identified: PatientID = case ID">DICOM (de-identified)</button>
+        <button id="expDicomStudy" disabled title="Choose one DICOM file of the original study: its patient and study attributes are copied into the exported series (not stored)">DICOM (to original study)</button>
+        <button id="expBundle" disabled>Research bundle</button>
+        <button id="expCsv" disabled>Slice table (CSV)</button>
+      </div>
+      <input type="file" id="refDicom" hidden>
+      <p class="hint">"To original study": PACS files the series with the original exam. The chosen file is read in memory only; the zip then contains identifiers.</p>
+      <div class="msg" id="expMsg"></div>
+    </section>
+    <section>
+      <h2>Slice check</h2>
+      <div id="qc"><p class="muted small">After reconstruction: per stack, how well each slice matches the volume (NCC; red = excluded) and how far it moved.</p></div>
+    </section>
+    <section>
+      <h2>Cursor</h2>
+      <div class="qc" id="cursor"></div>
+    </section>
+    <section>
+      <h2>This computer</h2>
+      <div class="kv small" id="sysInfo"></div>
+    </section>
+  </aside>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

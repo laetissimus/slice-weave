@@ -1,0 +1,7 @@
+# Versions SliceWeave was built and tested with (Linux x86-64, Python 3.13).
+# Lower bounds are in pyproject.toml.
+numpy==2.5.3
+scipy==1.18.1
+starlette==1.7.0
+uvicorn==0.54.0
+python-multipart==0.0.32

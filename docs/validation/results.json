@@ -1,0 +1,302 @@
+{
+ "phantom-adult": {
+  "single_axial_stack": {
+   "psnr_db": 19.97,
+   "ssim": 0.6279,
+   "ncc": 0.8185
+  },
+  "average": {
+   "psnr_db": 20.25,
+   "ssim": 0.6689,
+   "ncc": 0.8346
+  },
+  "srr": {
+   "psnr_db": 22.45,
+   "ssim": 0.8069,
+   "ncc": 0.9019
+  },
+  "motion_between_series": [
+   {
+    "true_deg": 1.6,
+    "true_mm": 1.57,
+    "residual_deg": 0.031,
+    "residual_mm": 0.031
+   },
+   {
+    "true_deg": 3.46,
+    "true_mm": 1.27,
+    "residual_deg": 0.029,
+    "residual_mm": 0.02
+   }
+  ],
+  "seconds": 119.5,
+  "recon_seconds": 85.0,
+  "grid": [
+   180,
+   192,
+   160
+  ]
+ },
+ "t1-adult": {
+  "single_axial_stack": {
+   "psnr_db": 22.34,
+   "ssim": 0.7168,
+   "ncc": 0.8663
+  },
+  "average": {
+   "psnr_db": 23.02,
+   "ssim": 0.7486,
+   "ncc": 0.894
+  },
+  "srr": {
+   "psnr_db": 25.76,
+   "ssim": 0.8953,
+   "ncc": 0.9416
+  },
+  "motion_between_series": [
+   {
+    "true_deg": 0.91,
+    "true_mm": 3.24,
+    "residual_deg": 0.088,
+    "residual_mm": 0.245
+   },
+   {
+    "true_deg": 4.93,
+    "true_mm": 4.98,
+    "residual_deg": 0.046,
+    "residual_mm": 0.159
+   }
+  ],
+  "seconds": 168.7,
+  "recon_seconds": 117.2,
+  "grid": [
+   180,
+   216,
+   192
+  ],
+  "source": "chris_t1.nii.gz"
+ },
+ "phantom-fetal": {
+  "no_motion_correction": {
+   "srr": {
+    "psnr_db": 17.86,
+    "ssim": 0.4041,
+    "ncc": 0.4182
+   },
+   "average": {
+    "psnr_db": 18.98,
+    "ssim": 0.491,
+    "ncc": 0.5111
+   },
+   "slice_pose_error_mm_before": 4.02,
+   "slice_pose_error_mm_after": 4.02,
+   "slices_used": 119,
+   "slices": 169,
+   "seconds": 24.0
+  },
+  "sliceweave": {
+   "srr": {
+    "psnr_db": 22.91,
+    "ssim": 0.7483,
+    "ncc": 0.8242
+   },
+   "average": {
+    "psnr_db": 21.14,
+    "ssim": 0.6724,
+    "ncc": 0.6952
+   },
+   "slice_pose_error_mm_before": 4.02,
+   "slice_pose_error_mm_after": 1.93,
+   "slices_used": 155,
+   "slices": 169,
+   "seconds": 201.6
+  },
+  "true_motion_upper_bound": {
+   "srr": {
+    "psnr_db": 25.47,
+    "ssim": 0.7885,
+    "ncc": 0.8853
+   }
+  },
+  "seconds": 282.2
+ },
+ "real-fetal": {
+  "stacks": [
+   {
+    "name": "AX run-1",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "AX",
+    "has_mask": true
+   },
+   {
+    "name": "AX run-2",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "AX",
+    "has_mask": true
+   },
+   {
+    "name": "COR run-3",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "COR",
+    "has_mask": true
+   },
+   {
+    "name": "COR run-4",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "COR",
+    "has_mask": true
+   },
+   {
+    "name": "SAG run-5",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "SAG",
+    "has_mask": true
+   },
+   {
+    "name": "SAG run-6",
+    "shape": [
+     320,
+     320,
+     22
+    ],
+    "pixel_mm": [
+     1.125,
+     1.125
+    ],
+    "thickness_mm": 3.0,
+    "spacing_mm": 3.3,
+    "plane": "SAG",
+    "has_mask": true
+   }
+  ],
+  "reference": "COR run-3",
+  "no_motion_correction": {
+   "median_slice_ncc": 0.694,
+   "p10_slice_ncc": 0.5783,
+   "slices_used": 126,
+   "slices": 130,
+   "stack_motion_deg_mm": [
+    [
+     "AX run-1",
+     0.0,
+     0.0
+    ],
+    [
+     "AX run-2",
+     0.0,
+     0.0
+    ],
+    [
+     "COR run-3",
+     0.0,
+     0.0
+    ],
+    [
+     "COR run-4",
+     0.0,
+     0.0
+    ],
+    [
+     "SAG run-5",
+     0.0,
+     0.0
+    ],
+    [
+     "SAG run-6",
+     0.0,
+     0.0
+    ]
+   ],
+   "seconds": 15.2
+  },
+  "sliceweave": {
+   "median_slice_ncc": 0.9727,
+   "p10_slice_ncc": 0.9551,
+   "slices_used": 130,
+   "slices": 130,
+   "stack_motion_deg_mm": [
+    [
+     "AX run-1",
+     4.372,
+     6.979
+    ],
+    [
+     "AX run-2",
+     6.733,
+     6.234
+    ],
+    [
+     "COR run-3",
+     0.122,
+     0.04
+    ],
+    [
+     "COR run-4",
+     3.593,
+     1.948
+    ],
+    [
+     "SAG run-5",
+     20.485,
+     6.615
+    ],
+    [
+     "SAG run-6",
+     20.646,
+     8.098
+    ]
+   ],
+   "seconds": 106.1
+  }
+ }
+}
