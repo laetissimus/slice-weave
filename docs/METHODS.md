@@ -1,7 +1,7 @@
 # SliceWeave methods
 
-SliceWeave estimates one isotropic volume from several 2-D multi-slice stacks (typically
-single-shot T2 HASTE / SSFSE / SSh-TSE in axial, coronal and sagittal planes). It follows the
+SliceWeave estimates one isotropic volume from several 2-D multi-slice stacks (single-shot T2
+HASTE / SSFSE / SSh-TSE, or 2-D FLAIR, in axial, coronal and sagittal planes). It follows the
 slice-to-volume reconstruction (SVR) and super-resolution reconstruction (SRR) framework of
 Rousseau et al. (2006), Jiang et al. (2007), Gholipour et al. (2010), Kuklisova-Murgasova et al.
 (2012) and Ebner et al. (2020, NiftyMIC). It is an independent implementation in NumPy/SciPy
@@ -14,6 +14,13 @@ Rousseau et al. (2006), Jiang et al. (2007), Gholipour et al. (2010), Kuklisova-
 * Slice thickness comes from DICOM `SliceThickness`, a dcm2niix/BIDS JSON sidecar, or the
   user; without one it is taken as the slice spacing. It sets the through-plane point-spread
   function (PSF), so a wrong value blurs or sharpens the result. Check it in the stack table.
+* In-plane resolution: images are often interpolated (a 256 x 192 acquisition shown at 512 x 512),
+  so the pixel size overstates the resolution. The acquired resolution along each image axis is
+  read from DICOM `AcquisitionMatrix` and `InPlanePhaseEncodingDirection` (FOV / acquired
+  samples; `PercentPhaseFieldOfView` for square images), or from a dcm2niix sidecar
+  (`AcquisitionMatrixPE`, `ReconMatrixPE`, `PhaseEncodingDirection`, `BaseResolution`). It is
+  never taken finer than the pixel, and an implausible value (more than 4 pixels) is ignored.
+  Without these fields the pixel size is used.
 * Acquisition order (for packets and temporal regularisation) comes from DICOM
   `AcquisitionTime`; without it an interleaved order (even slices, then odd slices) is assumed.
 * Each slice s of stack k has a rigid correction `T[k][s]` (world -> world), a scalar intensity
@@ -23,8 +30,9 @@ Rousseau et al. (2006), Jiang et al. (2007), Gholipour et al. (2010), Kuklisova-
 
     y_p = s_slice * b(p) * (A x)_p + noise,     (A x)_p = sum_v PSF_p(v) x_v
 
-The PSF is a 3-D Gaussian aligned with the (motion-corrected) slice: FWHM = 1.2 x pixel size
-in-plane and FWHM = slice thickness through-plane (Kuklisova-Murgasova 2012; Ebner 2020).
+The PSF is a 3-D Gaussian aligned with the (motion-corrected) slice: FWHM = 1.2 x acquired
+in-plane resolution along each in-plane axis (the pixel size when the resolution is unknown) and
+FWHM = slice thickness through-plane (Kuklisova-Murgasova 2012; Ebner 2020).
 
 Implementation: slices are grouped by orientation (within 12 degrees). For each group the PSF
 is applied to the whole volume in the Fourier domain (exact for any orientation; the trilinear
@@ -44,8 +52,13 @@ pixels for a 1 mm output), with the PSF widened accordingly.
 * `lambda = alpha * mean(diag(A^T W A))`, so alpha does not depend on the image scale or the
   number of stacks. With "Automatic" regularisation alpha = 0.1 + 65 x (relative noise), where the
   relative noise is estimated from each stack (median absolute 2-D Laplacian, Immerkaer 1996)
-  divided by the median tissue signal. The coefficient was chosen on simulated stacks with
-  known truth (docs/VALIDATION.md).
+  divided by the median tissue signal. For interpolated images the Laplacian is computed on
+  pixels sampled at about the acquired spacing: zero-filled interpolation correlates neighbouring
+  pixels and the pixel-level estimate would read the noise up to 10 times too low. The coefficient
+  was chosen on simulated stacks with known truth (docs/VALIDATION.md).
+* FLAIR preset: the volumes that serve as registration targets use this weight; the final volume
+  uses 0.35 x this weight, which keeps more of the contrast of small lesions for a small loss of
+  PSNR / SSIM (docs/VALIDATION.md, 2-D FLAIR). A fixed alpha applies to all volumes.
 * Solver: preconditioned conjugate gradients (Jacobi preconditioner), non-negativity by
   clipping at the end.
 * Output masking: voxels with too little data (coverage `A^T W 1` below 15 % of the typical
@@ -92,7 +105,38 @@ cycle).
    * SRR (warm start).
 5. **Final SRR** with more iterations, masking, and the average baseline.
 
-## 6. Orientation of the output
+## 6. Modes
+
+| | Adult / paediatric T2 | 2-D FLAIR | Fetal |
+|---|---|---|---|
+| Series | single-shot T2 | 2-D FLAIR (multi-shot inversion recovery) | single-shot T2 |
+| Region | head, automatic | head, automatic | user-placed ellipsoid or brain masks |
+| Motion | between series (slice-to-volume optional) | between series only | slice-to-volume |
+| Output voxel | 1.0 mm | 1.0 mm | 0.8 mm |
+| Initial volume | reference stack | reference stack | all stacks |
+| Outlier slices | only robust outliers | only robust outliers | NCC 0.5 -> 0.7 |
+| Final regularisation | noise-calibrated | 0.35 x noise-calibrated | noise-calibrated |
+
+**Why FLAIR is handled differently.** A single-shot slice is acquired in under a second, so it is
+a snapshot with one position, and slices can be repositioned one by one. A multi-shot 2-D FLAIR
+slice is filled over the whole series (several echo trains per slice, interleaved with the other
+slices, minutes in total); motion during the series produces ghosting and blurring within the
+slice, which no rigid repositioning can undo. SliceWeave therefore corrects only the motion
+between the three FLAIR series and refuses slice-to-volume correction in this mode (viewer,
+command line and engine). A FLAIR series degraded by motion should be excluded.
+
+**Recognition.** A series is FLAIR-like when its description, protocol or sequence name contains
+FLAIR, TIRM, dark fluid, T2_FL, IR-FSE (and similar), when the Siemens sequence name is `*tir2d`,
+or when TI > 1500 ms with TE > 60 ms. T1-FLAIR series named as such are also FLAIR-like (same
+multi-shot inversion-recovery handling). One reconstruction combines one contrast: import and the
+command line select the FLAIR series in FLAIR mode and the single-shot series otherwise; switching
+mode in the viewer switches the selection.
+
+**Plan warnings** (shown before running): FLAIR and non-FLAIR series selected together; selected
+series differing in TE (> 15 %), TR (> 25 %) or TI (> 10 %); fewer than three stacks or fewer than
+three planes.
+
+## 7. Orientation of the output
 
 The grid axes are the reference stack's axes, permuted and flipped to be closest to R, A and S
 (so an AC-PC-angled axial reference gives an AC-PC-angled volume). The optional reorientation
@@ -100,11 +144,13 @@ step rotates the result about its centre in its own axes and resamples it with c
 the affine (NIfTI) and ImageOrientationPatient (DICOM) always describe the true position in the
 scanner frame. For fetal studies this lets the volume be shown in fetal standard planes.
 
-## 7. What it does not do (yet)
+## 8. What it does not do (yet)
 
 * No automatic fetal brain localisation/segmentation: the region is placed by the user, or
   brain masks from another tool (e.g. a NIfTI per stack named `*mask*`) are used.
 * No deformable (non-rigid) motion, no slice-profile estimation, no learned priors.
+* No correction of motion within a multi-shot (FLAIR) series, and no modelling of inflow or
+  CSF-pulsation artefacts, which differ between planes (they are down-weighted as outliers at best).
 * No atlas-based standard-plane reorientation (manual rotation only).
 * CPU only; fetal cases take minutes.
 

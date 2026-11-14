@@ -39,6 +39,17 @@ class Stack:
         return float(np.linalg.norm(A[:3, 0])), float(np.linalg.norm(A[:3, 1]))
 
     @property
+    def resolution(self) -> tuple[float, float]:
+        """In-plane resolution along i and j (mm): the acquired resolution when the header
+        gives it (images are often interpolated, e.g. a 256 matrix shown at 512), never finer
+        than the pixel size."""
+        dx, dy = self.pixel
+        acq = self.meta.get("acq_res")
+        if not acq:
+            return dx, dy
+        return max(dx, float(acq[0] or 0)), max(dy, float(acq[1] or 0))
+
+    @property
     def normal(self) -> np.ndarray:
         A = self.slice_aff[0]
         n = np.cross(A[:3, 0], A[:3, 1])
@@ -91,7 +102,8 @@ class Stack:
         dx, dy = self.pixel
         return {"name": self.name, "shape": [int(x) for x in self.shape], "pixel_mm": [round(dx, 3), round(dy, 3)],
                 "thickness_mm": round(float(self.thickness), 3), "spacing_mm": round(self.spacing, 3),
-                "plane": self.plane, "has_mask": self.mask is not None}
+                "plane": self.plane, "has_mask": self.mask is not None,
+                "resolution_mm": [round(v, 3) for v in self.resolution]}
 
     # --------------------------------------------------------- constructors
     @classmethod
@@ -100,10 +112,16 @@ class Stack:
         """A regular 3-D volume (NIfTI). The slice axis is the axis with the largest spacing."""
         data = np.asarray(data, np.float32)
         affine = np.asarray(affine, float)
+        meta = dict(meta or {})
         sp = np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
         ax = int(np.argmax(sp)) if np.max(sp) > 1.2 * np.min(sp) else 2
+        order = [0, 1, 2] if ax == 2 else [a for a in range(3) if a != ax] + [ax]
+        res_axes = meta.pop("acq_res_axes", None)   # acquired resolution per file axis (None = unknown)
+        if res_axes is not None:
+            ra = [res_axes[order[0]], res_axes[order[1]]]
+            if any(r for r in ra):
+                meta["acq_res"] = [float(r) if r else 0.0 for r in ra]
         if ax != 2:  # make the slice axis the last one
-            order = [a for a in range(3) if a != ax] + [ax]
             data = np.transpose(data, order)
             if mask is not None:
                 mask = np.transpose(mask, order)
@@ -119,7 +137,7 @@ class Stack:
         sa[:, :3, 2] = n / np.linalg.norm(n)
         th = float(thickness) if thickness else float(sp[2])
         st = cls(name, np.ascontiguousarray(data), sa, th, None if mask is None else np.asarray(mask) > 0,
-                 plane_label(n), dict(meta or {}))
+                 plane_label(n), meta)
         return st
 
     # ------------------------------------------------------------ resizing

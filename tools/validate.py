@@ -8,6 +8,9 @@ Cases
   phantom-adult  formula phantom, 3 orthogonal stacks (0.9 x 0.9 x 4 mm, 0.4 mm gap), noise,
                  bias field, patient motion between series. Truth known.
   t1-adult       the same protocol simulated from a real 0.88 mm 3-D head scan (structural truth).
+  phantom-flair  adult formula phantom with FLAIR contrast and 12 white-matter lesions (2-8 mm),
+                 3 orthogonal 2-D FLAIR stacks: 256 x 192 acquired over 230 mm, zero-filled to 512,
+                 5 mm slices with a 1.5 mm gap. Also lesion contrast recovery and a pixel-size-PSF ablation.
   phantom-fetal  fetal formula phantom, 6 stacks (1.1 x 1.1 x 3 mm) with slice-by-slice motion,
                  2 partly corrupted slices per stack. Truth and true motion known.
   real-fetal     6 real fetal HASTE stacks (1.5 T, 1.125 x 1.125 x 3 mm) with manual brain masks.
@@ -35,6 +38,7 @@ from sliceweave.nifti import read_nifti  # noqa: E402
 from sliceweave.recon import Params, Reconstruction, default_roi  # noqa: E402
 from sliceweave.register import Sampler, register  # noqa: E402
 from sliceweave.selftest import _pose_error  # noqa: E402
+from sliceweave.stacks import Stack  # noqa: E402
 
 
 def on_grid(vol, aff, grid, D=None, order=1):
@@ -97,6 +101,88 @@ def adult_case(name, truth, taff, mask_fn, out, log, center=None, cover=None, fo
            ["truth", "single axial stack (reformatted)", "average of stacks (no SRR)", "SliceWeave SRR"])
     log(f"{name}: {json.dumps(out_m)}")
     return out_m
+
+
+def lesion_contrast(vol, grid, lesions, truth_grid, wm=0.45, lesion=0.95):
+    """Contrast recovery per lesion: (value at the lesion centre - median of the surrounding
+    white matter) / (true lesion - white-matter difference)."""
+    W = grid.vox_to_world(np.indices(grid.shape).reshape(3, -1).T)
+    out = []
+    for L in lesions:
+        c, radii, Rm = np.array(L["center"]), np.array(L["radii"]), np.array(L["R"])
+        near = np.all(np.abs(W - c) < 3.2 * radii.max() + 2, axis=1)
+        q = (W[near] - c) @ Rm
+        d = np.sqrt(((q / radii) ** 2).sum(axis=1))
+        shell = (d >= 2.0) & (d <= 3.5) & (np.abs(truth_grid.reshape(-1)[near] - wm) < 0.05)
+        if shell.sum() < 10:
+            continue
+        v_c = ndi.map_coordinates(vol, grid.world_to_vox(c[None]).T, order=1)[0]
+        bg = float(np.median(vol.reshape(-1)[near][shell]))
+        out.append((L["diameter_mm"], (v_c - bg) / (lesion - wm)))
+    bins = {"2-3 mm": (0, 3.01), "4-5 mm": (3.5, 5.01), "6-8 mm": (5.5, 9)}
+    return {k: round(float(np.median([cr for dmm, cr in out if lo <= dmm < hi])), 3)
+            for k, (lo, hi) in bins.items() if any(lo <= dmm < hi for dmm, _ in out)}
+
+
+def flair_case(out, log):
+    t0 = time.time()
+    truth, taff, info = simulate.phantom_head("flair", spacing=0.6)
+    ax = info["brain_half_axes_mm"]
+    stacks, Ts = simulate.simulate_stacks(truth, taff, "flair", motion=False, noise=0.02, bias=0.15)
+    roi = default_roi(stacks, 0, "flair")
+    rec = Reconstruction(stacks, roi, Params.preset("flair"), log=lambda m: None)
+    res = rec.run()
+    g = res.grid
+    tg = on_grid(truth, taff, g)
+    W = g.vox_to_world(np.indices(g.shape).reshape(3, -1).T)
+    m = (((W[:, 0] / ax[0]) ** 2 + (W[:, 1] / ax[1]) ** 2 + (W[:, 2] / ax[2]) ** 2) < 1.0).reshape(g.shape)
+    # ablation: the same reconstruction assuming the pixel size is the resolution (headers ignored)
+    plain = []
+    for st in stacks:
+        st2 = Stack(st.name, st.data, st.slice_aff, st.thickness, None, st.plane, {k: v for k, v in st.meta.items()
+                                                                                   if k != "acq_res"})
+        plain.append(st2)
+    # same regularisation weights as the main run, so only the point-spread function differs
+    a_fin, a_mot = res.report["alpha_used"], res.report["alpha_motion"]
+
+    class SameAlpha(Reconstruction):
+        def prepare(self):
+            super().prepare()
+            self.alpha, self.alpha_motion = a_fin, a_mot
+
+    res_px = SameAlpha(plain, roi, Params.preset("flair"), log=lambda m: None).run()
+    vol_px = on_grid(res_px.volume, res_px.grid.affine, g)
+    # ablation: the noise-calibrated weight of the other modes also for the final volume
+    res_cal = Reconstruction(stacks, roi, Params.preset("flair", alpha=a_mot), log=lambda m: None).run()
+    vol_cal = on_grid(res_cal.volume, res_cal.grid.affine, g)
+    single = stack_on(stacks[0], g)
+    vols = {"single_axial_stack": single, "average": res.average, "srr": res.volume, "srr_pixel_psf": vol_px,
+            "srr_noise_calibrated_alpha": vol_cal}
+    r = {}
+    for k, v in vols.items():
+        s_ = metrics.fit_scale(v, tg, m)
+        r[k] = metrics.compare(v, tg, m)
+        r[k]["lesion_contrast_recovery"] = lesion_contrast(v * s_, g, info["lesions"], tg)
+    r["truth_on_output_grid"] = {"lesion_contrast_recovery": lesion_contrast(tg, g, info["lesions"], tg)}
+    r["noise_rel_estimated"] = [s["noise_rel"] for s in res.report["stacks"]]
+    r["alpha"] = res.report["alpha_used"]
+    r["alpha_motion_correction"] = res.report["alpha_motion"]
+    r["motion_between_series"] = []
+    from sliceweave.geometry import rigid_params
+    for k in (1, 2):
+        tr = rigid_params(Ts[k][0], roi.center)
+        er = rigid_params(np.linalg.inv(Ts[k][0]) @ res.transforms[k][0], roi.center)
+        r["motion_between_series"].append({"true_deg": round(tr[0], 2), "true_mm": round(tr[1], 2),
+                                           "residual_deg": round(er[0], 3), "residual_mm": round(er[1], 3)})
+    r["recon_seconds"] = res.report["timing_s"]["total"]
+    r["seconds"] = round(time.time() - t0, 1)
+    L = sorted(info["lesions"], key=lambda x: abs(x["diameter_mm"] - 5))[0]
+    ctr = [int(round(v)) for v in g.world_to_vox(np.array(L["center"])[None])[0]]
+    figure(out / "phantom-flair.png", [tg, single, res.average, res.volume],
+           ["truth (FLAIR phantom, lesions 2-8 mm)", "single axial stack (reformatted)", "average of stacks (no SRR)",
+            "SliceWeave SRR (2-D FLAIR preset)"], center=ctr)
+    log(f"phantom-flair: {json.dumps(r)}")
+    return r
 
 
 def fetal_phantom(out, log):
@@ -203,7 +289,7 @@ def main():
     ap.add_argument("--out", default="docs/validation")
     ap.add_argument("--adult-t1")
     ap.add_argument("--fetal-dir")
-    ap.add_argument("--only", help="comma-separated subset: phantom-adult,t1-adult,phantom-fetal,real-fetal")
+    ap.add_argument("--only", help="comma-separated subset: phantom-adult,t1-adult,phantom-flair,phantom-fetal,real-fetal")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -236,6 +322,8 @@ def main():
         allres["t1-adult"] = adult_case("t1-adult", truth, v.affine, head, out, log, center=ctr, cover=176.0,
                                         fov=240.0)
         allres["t1-adult"]["source"] = Path(a.adult_t1).name
+    if want("phantom-flair"):
+        allres["phantom-flair"] = flair_case(out, log)
     if want("phantom-fetal"):
         allres["phantom-fetal"] = fetal_phantom(out, log)
     if a.fetal_dir and want("real-fetal"):

@@ -98,6 +98,7 @@
   }
   $("#demoAdult").addEventListener("click", () => demo("adult"));
   $("#demoFetal").addEventListener("click", () => demo("fetal"));
+  $("#demoFlair").addEventListener("click", () => demo("flair"));
 
   async function selectCase(cid) {
     S.cid = cid || null; store.set("case", cid || ""); $("#caseSel").value = cid || "";
@@ -192,12 +193,15 @@
       th.addEventListener("change", () => changeStacks([{ id: s.id, thickness_override: Number(th.value) === s.thickness_mm ? null : Number(th.value) }]));
       const tags = [];
       if (s.haste_like) tags.push(el("span", { class: "tag on", text: "SSh" , title: "single-shot (HASTE-like) series"}));
+      if (s.flair_like) tags.push(el("span", { class: "tag on", text: "FLAIR", title: "2-D FLAIR (multi-shot inversion recovery)" + (s.ti_ms ? `, TI ${Math.round(s.ti_ms)} ms` : "") }));
       if (s.has_mask) tags.push(el("span", { class: "tag ok", text: "mask" }));
       if (s.warnings && s.warnings.length) tags.push(el("span", { class: "tag", text: "!", title: s.warnings.join("; ") }));
       t.append(el("tr", { class: s.include ? "" : "off" },
         el("td", {}, use), el("td", {}, ref),
         el("td", {}, el("span", { class: "lab", text: s.label }), ...tags, el("span", { class: "desc", text: s.description, title: s.description })),
-        el("td", { class: "num", text: `${fmt(s.pixel_mm[0], 2)}` }), el("td", {}, th),
+        el("td", { class: "num", text: `${fmt(s.pixel_mm[0], 2)}`,
+          title: s.resolution_mm ? `pixel ${fmt(s.pixel_mm[0], 2)} x ${fmt(s.pixel_mm[1], 2)} mm; acquired resolution ${fmt(s.resolution_mm[0], 2)} x ${fmt(s.resolution_mm[1], 2)} mm (${s.resolution_source})` : "" },
+          ...(s.resolution_mm && Math.max(...s.resolution_mm) > 1.05 * Math.max(...s.pixel_mm) ? [el("small", { class: "acq", text: ` acq ${fmt(Math.max(...s.resolution_mm), 1)}` })] : [])), el("td", {}, th),
         el("td", { class: "num", text: s.shape[2] }), el("td", { class: "num", text: s.motion_score === undefined ? "-" : fmt(s.motion_score, 2) })));
     }
     box.append(t);
@@ -214,7 +218,15 @@
     $("#planState").textContent = plan ? plan.roi_source || "" : "";
     $("#modeHint").textContent = !plan ? "" : plan.mode === "fetal"
       ? "Fetal: slice-to-volume motion correction. Place the region (ellipsoid) on the fetal brain in the full view: Draw region, or Centre on cursor. A brain mask imported with the stacks is used if present."
-      : "Adult / paediatric: the head is found automatically; motion between series is corrected. Choose Slice-to-volume for a moving child.";
+      : plan.mode === "flair"
+      ? "2-D FLAIR: the head is found automatically; motion between series is corrected. FLAIR is multi-shot, so slices cannot be corrected one by one: exclude a series degraded by motion. Use the three planes of one FLAIR protocol (same TR, TE, TI)."
+      : "Adult / paediatric single-shot T2: the head is found automatically; motion between series is corrected. Choose Slice-to-volume for a moving child.";
+    const warn = $("#planWarn"); warn.textContent = "";
+    const ws = (plan && plan.warnings) || [];
+    ws.forEach(w => warn.append(el("li", { text: w })));
+    warn.hidden = !ws.length;
+    const sliceOpt = $$("#setMotion option").find(o => o.value === "slice");
+    if (sliceOpt) { sliceOpt.disabled = !!plan && plan.mode === "flair"; sliceOpt.title = sliceOpt.disabled ? "Not for multi-shot FLAIR" : ""; }
     const info = $("#roiInfo"); info.textContent = "";
     if (plan) {
       const r = plan.roi;
@@ -395,10 +407,10 @@
     const p = r.params;
     d.append(card("Settings", kvTable([["Mode", p.mode], ["Output voxel", `${r.grid.spacing} mm isotropic`], ["Grid", r.grid.shape.join(" x ")],
       ["Motion correction", { none: "none", stack: "between series (rigid, per stack)", slice: "slice-to-volume (stacks, packets, then single slices)" }[p.motion]],
-      ["Cycles", p.cycles], ["Regularisation", `${p.regularizer}, alpha ${fmt(r.alpha_used, 2)}${p.alpha === null ? " (automatic from the noise)" : ""}`],
+      ["Cycles", p.cycles], ["Regularisation", `${p.regularizer}, alpha ${fmt(r.alpha_used, 2)}${p.alpha === null ? " (automatic from the noise" + (r.alpha_motion && Math.abs(r.alpha_motion - r.alpha_used) > 1e-6 ? `; ${fmt(r.alpha_motion, 2)} for the motion-correction volumes` : "") + ")" : ""}`],
       ["Outlier rejection", p.outlier_rejection ? `on (NCC threshold ${p.ncc_threshold})` : "off"], ["Intensity correction", p.bias_correction ? "on" : "off"],
       ["Region", `${r.roi.shape}, ${r.roi.half.map(h => (2 * h).toFixed(0)).join(" x ")} mm`]]),
-      el("p", { class: "how" }, el("b", { text: "How to read this. " }), "The volume is estimated from the acquired slices; detail finer than the in-plane pixel cannot be created, and through-plane detail is recovered from the other orientations. Check the result against the original 2-D series, especially where slices were excluded.")));
+      el("p", { class: "how" }, el("b", { text: "How to read this. " }), "The volume is estimated from the acquired slices; detail finer than the acquired in-plane resolution cannot be created, and through-plane detail is recovered from the other orientations. Check the result against the original 2-D series, especially where slices were excluded.")));
     const t = el("table", { class: "t" });
     t.append(el("tr", {}, ...["Stack", "Slices used", "Pixel (mm)", "Thickness (mm)", "Noise (rel.)", "Stack rotation (deg)", "Stack shift (mm)", "Median slice motion (mm)"].map(h => el("th", { text: h }))));
     for (const s of r.stacks) {

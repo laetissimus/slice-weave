@@ -278,3 +278,7 @@ table.vol tr.dim td { color: var(--muted); }
 .hint { font-size: 11.5px; color: var(--muted); margin: 4px 0; }
 .demo { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .view canvas.roi { cursor: cell; }
+ul.warn { margin: 6px 0 4px; padding-left: 16px; font-size: 12px; line-height: 1.35; }
+ul.warn li { margin: 2px 0; }
+td small.acq { display: block; font: 10px var(--mono); color: var(--muted); }
+.seg.mode button { font-size: 12px; }

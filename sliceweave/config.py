@@ -9,7 +9,7 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 NAME = "SliceWeave"
 RESEARCH_BANNER = "RESEARCH USE ONLY - NOT FOR CLINICAL DIAGNOSIS"
 

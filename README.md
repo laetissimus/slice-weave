@@ -1,7 +1,8 @@
 # SliceWeave
 
-**Super-resolution reconstruction of 3-plane 2-D HASTE stacks into one isotropic volume**, for
-adult, paediatric and fetal brain MRI. A standalone, offline application: DICOM or NIfTI in, a
+**Super-resolution reconstruction of 3-plane 2-D stacks into one isotropic volume**: single-shot
+T2 (HASTE / SSFSE / SSh-TSE) for adult, paediatric and fetal brain MRI, and 2-D FLAIR for adult
+and paediatric brain. A standalone, offline application: DICOM or NIfTI in, a
 3-plane viewer, isotropic volume out as NIfTI or DICOM.
 
 RESEARCH USE ONLY - NOT FOR CLINICAL DIAGNOSIS. Always compare the result with the acquired 2-D
@@ -39,7 +40,7 @@ pip install pydicom python-gdcm            # optional: JPEG-compressed DICOM
 python -m sliceweave serve                 # opens the viewer at http://127.0.0.1:8766
 ```
 
-Try it without patient data: in the viewer, "Demo with simulated data" -> Adult demo or Fetal
+Try it without patient data: in the viewer, "Demo with simulated data" -> Adult, FLAIR or Fetal
 demo, then Reconstruct.
 
 ## Workflow in the viewer
@@ -51,9 +52,11 @@ demo, then Reconstruct.
    grid. Import de-identifies (see SECURITY.md).
 3. **Stacks**: include/exclude, choose the reference stack (suggested: least motion; it sets the
    output orientation), check the slice thickness (it drives the slice profile).
-4. **Mode and region**: *Adult / paediatric* (head found automatically, motion between series
-   corrected) or *Fetal* (place the region on the fetal brain: Draw region, drag a box on any view
-   of each orientation; or use brain masks).
+4. **Mode and region**: *Adult / paed. T2* (single-shot; head found automatically, motion between
+   series corrected), *2-D FLAIR* (see below), or *Fetal* (place the region on the fetal brain:
+   Draw region, drag a box on any view of each orientation; or use brain masks). Warnings appear
+   here when the selected series do not belong together (mixed contrasts, different TE/TR/TI,
+   fewer than three planes).
 5. **Settings**: output voxel size, motion correction (none / between series / slice-to-volume),
    cycles, regularisation (automatic from the noise, or a fixed alpha), outlier rejection,
    intensity correction.
@@ -64,6 +67,27 @@ demo, then Reconstruct.
    (choose one original image file; PACS files the series with that exam), research bundle
    (volumes, report.json, slices.csv).
 
+## 2-D FLAIR
+
+Three orthogonal 2-D FLAIR series of one protocol (same TR, TE, TI) can be combined the same way.
+FLAIR series are recognised by name (FLAIR, TIRM, dark fluid, ...), the Siemens `*tir2d` sequence,
+or a long TI with a long TE; in a study with both single-shot T2 and FLAIR, the mode buttons switch
+between them.
+
+* **Motion between series only.** FLAIR is multi-shot: each slice is filled over the whole series,
+  so it has no single position to correct. Slice-to-volume correction is not offered; exclude a
+  series degraded by motion.
+* **Acquired resolution.** FLAIR (like most clinical series) is often acquired at 256 x 192 and
+  shown at 512 x 512. SliceWeave reads the acquired matrix from the DICOM header or the dcm2niix
+  sidecar and models that resolution, not the pixel size (all modes). The stack table shows it.
+* **Small lesions.** The FLAIR preset regularises the final volume less than the other modes to
+  keep small hyperintensities, but on the FLAIR phantom lesions of 2-3 mm still keep only about
+  40 % of their contrast (4 mm and larger: fully; docs/VALIDATION.md). Use the
+  reconstruction for orientation and reformatting, read lesions on the acquired series, and do
+  not count or measure lesions on it without your own validation. A 3-D FLAIR, when acquired, is
+  better than any reconstruction from 2-D slices.
+* Inflow and CSF-pulsation artefacts differ between planes; they are down-weighted, not removed.
+
 ## Command line
 
 ```
@@ -71,12 +95,14 @@ sliceweave recon --mode adult -o srr.nii.gz /path/to/dicom_folder
 sliceweave recon --mode fetal --resolution 0.8 -o fetal_srr.nii.gz \
     run-1_T2w.nii.gz run-2_T2w.nii.gz ... run-1_mask.nii.gz ...
 sliceweave recon --mode fetal --roi-center 12,-30,45 --roi-size 90,100,85 -o out.nii.gz stacks/*.nii.gz
-sliceweave simulate --kind fetal -o sim/        # phantom stacks with known truth
+sliceweave recon --mode flair -o flair_srr.nii.gz /path/to/study_folder   # uses the FLAIR series only
+sliceweave simulate --kind fetal -o sim/        # phantom stacks with known truth (adult, flair, fetal)
 sliceweave selftest [--full]                    # end-to-end checks on phantoms
 sliceweave doctor                               # versions, disk encryption, network guard
 ```
 
-`SliceWeave.exe` accepts the same commands. `recon --dicom-out DIR` also writes a de-identified
+Given a whole study, `recon` keeps the series of the chosen kind (single-shot T2, or FLAIR in
+`--mode flair`) and lists the others. `SliceWeave.exe` accepts the same commands. `recon --dicom-out DIR` also writes a de-identified
 DICOM series; `--report r.json` the full report.
 
 ## How it works (short)
@@ -97,6 +123,7 @@ Summary (details, figures and how to reproduce: [docs/VALIDATION.md](docs/VALIDA
 |---|---|
 | Adult phantom, 3 stacks 0.9 x 0.9 x 4 mm, motion between series | SRR PSNR 22.5 dB / SSIM 0.81, vs average of stacks 20.3 / 0.67 and one reformatted stack 20.0 / 0.63; series motion recovered to 0.03 deg / 0.03 mm |
 | Same protocol simulated from a real 0.88 mm head scan | SRR 25.8 dB / 0.90, vs average 23.0 / 0.75 and one stack 22.3 / 0.72 |
+| FLAIR phantom, 3 stacks 1.2 x 0.9 x 5 mm (zero-filled to 512), 12 lesions 2-8 mm | SRR 17.9 dB / 0.68 vs average 16.1 / 0.59 and one stack 15.7 / 0.51; contrast of 4-8 mm lesions fully recovered (one stack: 50-70 %), 2-3 mm lesions about 40 % (one stack: 16 %) |
 | Fetal phantom, 6 stacks 1.1 x 1.1 x 3 mm, slice-by-slice motion | slice pose error 4.0 -> 1.9 mm; SRR 22.9 dB / 0.75 vs 17.9 / 0.40 without motion correction (true-motion upper bound 25.5 / 0.79) |
 | Public fetal HASTE (6 stacks, 1.5 T) | median slice-to-volume NCC 0.69 -> 0.97, all 130 slices used, 2 min on 2 CPU cores |
 
@@ -110,9 +137,11 @@ These are software checks on simulated and public data, not a clinical validatio
   automatic fetal brain detection yet.
 * Rigid motion only; large fetal rotations between stacks may need the region re-centred per
   stack or a better reference stack; severely corrupted stacks should be excluded.
-* Detail finer than the in-plane pixel cannot be created; through-plane detail comes from the
-  other orientations, so at least three orthogonal stacks are needed (fetal: two per orientation
-  helps).
+* Detail finer than the acquired in-plane resolution cannot be created; through-plane detail
+  comes from the other orientations, so at least three orthogonal stacks are needed (fetal: two
+  per orientation helps).
+* 2-D FLAIR: no correction of motion within a series; very small lesions lose contrast; not
+  validated on patient FLAIR yet.
 * CPU only: adult about 1-2 min, fetal about 2-5 min on a laptop.
 * Not a medical device; not for diagnosis.
 

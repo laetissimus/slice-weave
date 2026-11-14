@@ -66,7 +66,7 @@ class Operator:
         shape = grid.shape
         kfreq = _freq_grid(shape)
         for si, st in enumerate(stacks):
-            dx, dy = st.pixel
+            dx, dy = st.resolution
             normals, rows = [], []
             used = []
             for s in range(st.nz):

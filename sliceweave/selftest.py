@@ -23,9 +23,9 @@ from .recon import Params, Reconstruction, default_roi
 def make_demo(store, cid: str, kind: str = "adult", log=None):
     """Create a simulated case (stacks saved like imported ones)."""
     log = log or (lambda m: None)
-    truth, aff, info = simulate.phantom_head(kind, spacing=1.0 if kind == "adult" else 0.7)
+    truth, aff, info = simulate.phantom_head(kind, spacing=0.7 if kind == "fetal" else 1.0)
     a, b, c = info["brain_half_axes_mm"]
-    kw = {} if kind == "adult" else {"static": truth, "fetal_radius": (a * 1.3, b * 1.3, c * 1.3)}
+    kw = {"static": truth, "fetal_radius": (a * 1.3, b * 1.3, c * 1.3)} if kind == "fetal" else {}
     stacks, _ = simulate.simulate_stacks(truth, aff, kind, log=log, **kw)
     case = store.load(cid)
     entries = []
@@ -33,10 +33,16 @@ def make_demo(store, cid: str, kind: str = "adult", log=None):
         sid = f"s{n + 1:02d}"
         store.save_stack(cid, sid, st)
         dx, dy = st.pixel
-        entries.append({"id": sid, "label": f"{st.plane} {n + 1} (SIM)", "description": st.name + " - SIMULATED",
+        rx, ry = st.resolution
+        fl = kind == "flair"
+        entries.append({"id": sid, "label": f"{st.plane} {n + 1} (SIM)",
+                        "description": st.name + (" 2D FLAIR" if fl else " HASTE") + " - SIMULATED",
                         "plane": st.plane, "shape": [int(v) for v in st.shape], "pixel_mm": [round(dx, 3), round(dy, 3)],
+                        "resolution_mm": [round(rx, 3), round(ry, 3)],
+                        "resolution_source": "acquisition matrix" if st.meta.get("acq_res") else "pixel size",
                         "thickness_mm": st.thickness, "spacing_mm": round(st.spacing, 3),
-                        "thickness_source": "simulation", "source": "simulated", "haste_like": True, "include": True,
+                        "thickness_source": "simulation", "source": "simulated", "haste_like": not fl,
+                        "flair_like": fl, "sequence": "flair" if fl else "single-shot", "include": True,
                         "has_mask": False, "acq_order_known": True, "series_number": n + 1, "warnings": []})
     case["stacks"] = entries
     case["simulated"] = True
@@ -80,6 +86,25 @@ def run(full: bool = False, out: Path | None = None, log=print) -> dict:
         check("DICOM write and read back", same and geo and st.plane == "COR", plane=st.plane, slices=st.nz,
               haste_like=series.looks_like_haste(found[0]))
         del A
+        # 2-D FLAIR: recognised, acquired (not displayed) resolution read from the header
+        v2 = np.zeros((128, 128, 6), np.float32)
+        v2[40:90, 40:90] = 500
+        a2 = np.array([[1.8, 0, 0, -115], [0, 1.8, 0, -115], [0, 0, 6.5, 0], [0, 0, 0, 1]], float)
+        write_series(v2, a2, Path(td) / "f", {"SeriesDescription": "AX T2 FLAIR TEST", "SliceThickness": 5.0,
+                                               "AcquisitionMatrix": [0, 64, 48, 0], "InPlanePhaseEncodingDirection": "ROW",
+                                               "InversionTime": 2500.0, "EchoTime": 86.0,
+                                               "SeriesInstanceUID": "2.25.3", "StudyInstanceUID": "2.25.2"}, slope=1.0)
+        f = series.scan([Path(td) / "f"])[0]
+        stf = series.build_stack(f)
+        ok_res = np.allclose(stf.resolution, (128 * 1.8 / 48, 128 * 1.8 / 64), atol=1e-3)
+        try:
+            Reconstruction([stf], default_roi([stf], 0, "flair"), Params.preset("flair", motion="slice"))
+            guard = False
+        except ValueError:
+            guard = True
+        check("2-D FLAIR: recognised, acquired resolution read, slice-by-slice motion refused",
+              series.looks_like_flair(f) and not series.looks_like_haste(f) and ok_res and guard,
+              resolution_mm=[round(v, 3) for v in stf.resolution])
     # 2. adult mode on the phantom
     truth, taff, info = simulate.phantom_head("adult", spacing=1.0 if not full else 0.7)
     stacks, Ts = simulate.simulate_stacks(truth, taff, "adult", motion=False, noise=0.02)

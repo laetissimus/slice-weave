@@ -468,7 +468,7 @@ def create_app(settings: Settings, token: str, port: int) -> Starlette:
 
     async def demo(req):
         b = await body_json(req)
-        kind = "fetal" if b.get("kind") == "fetal" else "adult"
+        kind = b.get("kind") if b.get("kind") in ("fetal", "flair") else "adult"
         cid = f"DEMO-{kind.upper()}-{secrets.token_hex(2).upper()}"
         store.create(cid, simulated=True)
 

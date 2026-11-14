@@ -1,7 +1,7 @@
 # Validation
 
-Software validation on simulated stacks with known ground truth and on one public fetal
-dataset. **Not a clinical validation**: no reader study, no comparison with other toolkits on the
+Software validation on simulated stacks with known ground truth (single-shot T2 and 2-D FLAIR)
+and on one public fetal dataset. **Not a clinical validation**: no reader study, no comparison with other toolkits on the
 same data, one real case. All numbers come from `tools/validate.py` (results in
 `docs/validation/results.json`, figures next to it) on a 2-core cloud VM, CPU only.
 
@@ -23,6 +23,13 @@ python tools/validate.py --out docs/validation \
   (PSF-weighted mean of the same motion-corrected slices, no deconvolution).
 * Adult protocol: AX, COR, SAG, 0.9 x 0.9 mm pixels, 4 mm slices, 0.4 mm gap, small obliquity,
   rigid head motion between series (up to 5 deg / 5 mm). Output 1.0 mm.
+* 2-D FLAIR protocol: AX, COR, SAG of a FLAIR phantom (the adult anatomy with FLAIR contrast and
+  12 bright white-matter lesions of 2-8 mm), acquired 192 x 256 over 230 mm (1.2 x 0.9 mm) and
+  zero-filled to 512 x 512 (0.45 mm pixels) as scanners do, complex noise added before the
+  interpolation (sigma 4.4 % of the white-matter signal), 5 mm slices, 1.5 mm gap, rigid motion
+  between series. Output 1.0 mm. Lesion contrast recovery: (value at the lesion centre - median
+  of the white matter 2-3.5 radii away) / (true lesion - white-matter difference), after the
+  intensity scale; median per size group (4 lesions each).
 * Fetal protocol: each orientation twice, 1.1 x 1.1 mm pixels, 3 mm slices, 0.3 mm gap,
   obliquity about 6 deg, interleaved acquisition with smooth random fetal motion (up to about
   6 deg / 3 mm plus sudden jumps; median within-stack motion 3-6 deg), a static maternal
@@ -60,6 +67,36 @@ and 0.05 deg / 0.16 mm. Reconstruction 103 s.
 
 ![T1 adult](validation/t1-adult.png)
 
+### 2-D FLAIR, formula phantom with lesions (truth 0.6 mm)
+
+| Volume | PSNR (dB) | SSIM | NCC | lesion contrast 2-3 / 4-5 / 6-8 mm |
+|---|---|---|---|---|
+| single axial stack, reformatted | 15.70 | 0.510 | 0.701 | 0.16 / 0.50 / 0.72 |
+| average of stacks (no SRR) | 16.11 | 0.595 | 0.741 | 0.09 / 0.53 / 0.71 |
+| **SliceWeave SRR (FLAIR preset)** | **17.91** | **0.679** | **0.840** | **0.38 / 1.24 / 1.13** |
+| SRR, noise-calibrated weight of the other modes | 18.40 | 0.735 | 0.853 | 0.24 / 1.19 / 1.14 |
+| SRR, pixel size taken as resolution (same weights) | 18.35 | 0.696 | 0.852 | 0.35 / 1.18 / 1.14 |
+| truth on the 1 mm output grid | - | - | - | 0.90 / 1.00 / 1.00 |
+
+Noise estimated at 0.044 of the median tissue signal (all three stacks); alpha 2.95 for the
+registration targets, 1.03 for the final volume. Motion between series: true 3.6 deg / 0.8 mm
+and 2.8 deg / 2.3 mm; residual 0.10 deg / 0.15 mm and 0.05 deg / 0.08 mm. Reconstruction 58 s.
+
+Reading:
+
+* SRR recovers the contrast of lesions of 4 mm and more (values slightly above 1 are overshoot at
+  the lesion centre from the deconvolution), where a single 5 mm stack or the plain average keeps
+  about half of it. Lesions of 2-3 mm keep about 40 % of their contrast (90 % is the most a 1 mm
+  grid can hold): better than one stack (16 %) or the average (9 %), but small lesions are still
+  softened. Read lesions on the acquired series.
+* The FLAIR weight trades 0.5 dB PSNR and 0.06 SSIM (mostly noise) for 1.6 x the contrast of
+  2-3 mm lesions.
+* Modelling the acquired resolution (1.2 x 0.9 mm instead of the 0.45 mm pixels) matters most
+  through the noise estimate, which sets the weight; with the same weights the PSF alone changed
+  PSNR / SSIM and lesion contrast by small amounts in opposite directions.
+
+![phantom FLAIR](validation/phantom-flair.png)
+
 ### Fetal, formula phantom with slice motion (truth 0.6 mm)
 
 | Volume | PSNR (dB) | SSIM | NCC | slice pose error (mm) | slices used |
@@ -90,12 +127,15 @@ from the reconstructed volume (inside the brain mask).
 
 | | median slice NCC | 10th percentile | slices used | time |
 |---|---|---|---|---|
-| without motion correction | 0.694 | 0.578 | 126 / 130 | 16 s |
-| **SliceWeave (slice-to-volume)** | **0.973** | **0.955** | 130 / 130 | 113 s |
+| without motion correction | 0.687 | 0.566 | 126 / 130 | 17 s |
+| **SliceWeave (slice-to-volume)** | **0.969** | **0.954** | 130 / 130 | 99 s |
 
-Estimated stack motion relative to the reference (COR run-3, chosen automatically as the stack
-with the least motion): AX 4.4 deg / 7.0 mm and 6.7 deg / 6.2 mm, COR 3.6 deg / 1.9 mm, SAG
-20.5 deg / 6.6 mm and 20.6 deg / 8.1 mm. Consistency is measured against a volume built from the
+Since 1.1.0 the acquired in-plane resolution is modelled: the dcm2niix sidecars give 224
+phase-encoding lines reconstructed to 320, so 1.61 x 1.125 mm (v1.0.0 assumed the 1.125 mm
+pixels: 0.973 / 0.955). Estimated stack motion relative to the reference (COR run-3, chosen
+automatically as the stack with the least motion): AX 4.2 deg / 7.0 mm and 6.4 deg / 6.2 mm, COR
+3.5 deg / 2.0 mm, SAG 20.3 deg / 6.6 mm and 20.7 deg / 8.1 mm (v1.0.0: within 0.3 deg / 0.04 mm
+of these). Consistency is measured against a volume built from the
 same slices, so it shows that the motion estimates make the slices agree with each other; it is
 not an accuracy measure. Visually (figure), the corrected reconstruction shows the lateral
 ventricles, the cortical ribbon, the corpus callosum and the cerebellum without the slice
@@ -110,23 +150,33 @@ an earlier version of the adult phantom (truth 1 mm, without stack motion) at fo
 (0.5, 1, 2 and 4 % of the CSF signal; alpha 0.1-10) by the alpha that maximised PSNR and SSIM
 together: about 0.5-1 at 0.5 %, 1-3 at 1 %, about 3 at 2 % and 3-10 at 4 % (PSNR peaked at the
 lower, SSIM at the higher value); the formula gives 0.85, 1.6, 3.1 and 6.1. The noise estimate (Immerkaer Laplacian, relative to the median tissue signal) matched the
-simulated noise within about 10 % at 2 %. A fixed alpha can be set in the viewer or with
-`--alpha`.
+simulated noise within about 10 % at 2 %. On zero-filled (interpolated) images the noise is
+estimated at the acquired spacing; at the pixel level it read 0.004 instead of 0.044 on the FLAIR
+phantom. A fixed alpha can be set in the viewer or with `--alpha`.
+
+FLAIR preset: the volumes used as registration targets keep this weight, the final volume uses
+0.35 x this weight (FLAIR is read for small focal lesions; see the FLAIR table: lesion contrast of
+2-3 mm lesions about 1.5 x higher for a small loss of PSNR and SSIM).
 
 ## Tests run on every build
 
-`pytest` (21 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
+`pytest` (29 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
 3D motion (< 0.2 deg / 0.2 mm), SRR beats the average and recovers between-series motion
 (< 0.5 deg / 0.5 mm), DICOM write/read geometry, NIfTI round trip and JSON sidecar thickness,
 DICOM decoding (implicit, big-endian, RLE), case ID and de-identification rules, server login /
 CSRF / Host / CSP, an API import-to-viewer round trip, the network guard and the static network
-audit. `sliceweave selftest` (DICOM round trip, adult phantom end-to-end) runs on Windows from
+audit, FLAIR recognition (names, sequence, TI/TE; HASTE not taken for FLAIR), acquired
+resolution from DICOM and from sidecars, the PSF following the acquired resolution, the noise
+estimate on zero-filled images, the FLAIR preset refusing slice-to-volume correction, and the plan
+switching stacks and warning on mixed contrasts. `sliceweave selftest` (DICOM round trip, FLAIR recognition, adult phantom end-to-end) runs on Windows from
 source and inside the built executable with outbound network traffic blocked.
 
 ## Not yet validated
 
 * Clinical image quality (reader study), paediatric data, 3 T data, other vendors' single-shot
   sequences.
+* 2-D FLAIR on patient data (phantom only so far): lesion detection and conspicuity against the
+  acquired series, inflow and CSF-pulsation artefacts, motion within a multi-shot series.
 * Comparison against NiftyMIC / SVRTK / NeSVoR on the same stacks.
 * Robustness to severe fetal motion (large rotations within a stack) and to poor region placement.
 * Quantitative accuracy of measurements (biometry, volumetry) on the reconstructed volumes.
