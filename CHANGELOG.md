@@ -20,6 +20,10 @@
   acquisition; validation case `phantom-flair` with lesion contrast recovery.
 * CLI: `--mode flair`; `recon` now keeps only the series of the chosen kind when a whole study is
   given; `simulate --kind flair`. Viewer: FLAIR demo.
+* Cycles: with 0 cycles or without motion correction, intensity correction and the outlier check
+  now run once when switched on (before, they were skipped unless outlier rejection was on). The
+  viewer explains the setting for the chosen motion correction and disables it without motion
+  correction. README section "Cycles"; `tools/validate.py --only cycles` measures its effect.
 * Windows build also runs on pull requests.
 * Published releases (or a manual run with `release_tag`) get the tested executables attached;
   the build adds THIRD-PARTY-NOTICES.txt with the licences of the bundled Python and libraries.

@@ -644,13 +644,19 @@ class Reconstruction:
         # -- motion-correction cycles
         t = time.time()
         excluded = []
-        n_cycles = p.cycles if p.motion in ("stack", "slice") else (1 if p.outlier_rejection else 0)
+        # each cycle: motion correction against the current volume, then intensity correction and the
+        # outlier test, then SRR again. Without motion correction (or with 0 cycles) intensity
+        # correction and the outlier test still run once when they are switched on.
+        n_motion = max(int(p.cycles), 0) if p.motion in ("stack", "slice") else 0
+        n_cycles = max(n_motion, 1 if (p.outlier_rejection or p.bias_correction) else 0)
         slice_levels = {1: [2.0, 1.0], 2: [1.0, 0.5]}
         for c in range(n_cycles):
             self.check_cancel()
             self._progress("motion", c / max(n_cycles, 1), f"cycle {c + 1} of {n_cycles}")
-            self.log(f"cycle {c + 1}/{n_cycles}")
-            if p.motion == "slice":
+            self.log(f"cycle {c + 1}/{n_cycles}" + ("" if c < n_motion else " (intensity and outlier check only)"))
+            if c >= n_motion:
+                pass
+            elif p.motion == "slice":
                 if c == 0:
                     # coarse to fine in the slices too: whole stacks, then packets of slices acquired together
                     if len(self.stacks) > 1:

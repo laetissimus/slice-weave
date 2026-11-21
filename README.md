@@ -61,7 +61,7 @@ demo, then Reconstruct.
    here when the selected series do not belong together (mixed contrasts, different TE/TR/TI,
    fewer than three planes).
 5. **Settings**: output voxel size, motion correction (none / between series / slice-to-volume),
-   cycles, regularisation (automatic from the noise, or a fixed alpha), outlier rejection,
+   cycles (rounds of motion correction, see [Cycles](#cycles)), regularisation (automatic from the noise, or a fixed alpha), outlier rejection,
    intensity correction.
 6. **Reconstruct**, then review: Result vs any input stack (Compare, key B), slice check (which
    slices were used, how far each moved), report. Optional reorientation (rotate the volume about
@@ -69,6 +69,49 @@ demo, then Reconstruct.
 7. **Export**: NIfTI (SRR, average), DICOM de-identified, DICOM attached to the original study
    (choose one original image file; PACS files the series with that exam), research bundle
    (volumes, report.json, slices.csv).
+
+## Cycles
+
+A **cycle** is one round of: motion correction against the current reconstruction, intensity
+correction (per-slice scale, smooth bias field per stack), the outlier-slice check, and a new
+super-resolution solve. Each round registers the data to a sharper volume, so the motion
+estimates and the volume improve together. Before the first cycle the series are registered once
+to the reference stack; after the last cycle a longer final solve gives the output. Viewer:
+Settings -> Cycles (0-8); command line: `--cycles N`.
+
+| Motion correction | What one cycle corrects | Default |
+|---|---|---|
+| Between series (adult / paed. T2, FLAIR) | each whole series, re-registered to the latest volume | 1 |
+| Slice-to-volume (fetal; optional for a moving child) | coarse to fine: cycle 1 whole stacks, then packets of slices acquired together (2, then 4 per stack); cycle 2 packets of 8, then single slices; cycle 3 and later single slices with less smoothing each round. From cycle 2 each slice's motion is smoothed over its neighbours in time; the fetal outlier threshold rises 0.5 -> 0.6 -> 0.7 over the first three cycles | 6 |
+| None | cycles are not used | - |
+
+With 0 cycles, or without motion correction, intensity correction and the outlier check still
+run once (when switched on), but the series keep their first registration.
+
+Effect on the phantoms (`python tools/validate.py --only cycles`; same stacks for every
+setting; 2 CPU cores):
+
+| Fetal phantom, slice-to-volume | 1 | 2 | 3 | 4 | **6** | 8 |
+|---|---|---|---|---|---|---|
+| PSNR (dB) / SSIM | 18.4 / 0.48 | 21.6 / 0.67 | 22.2 / 0.71 | 22.5 / 0.73 | **22.9 / 0.75** | 23.3 / 0.76 |
+| slice position error (mm; 4.0 before) | 3.3 | 2.7 | 2.4 | 2.2 | **1.9** | 1.6 |
+| slices used (of 169) | 84 | 149 | 151 | 151 | **155** | 155 |
+| time (s) | 101 | 138 | 151 | 164 | **203** | 204 |
+
+Without motion correction: 17.9 dB / 0.40; with the true motion: 25.5 dB / 0.79. On the adult
+phantom (motion between series 1.6-3.5 deg, 1.3-1.6 mm) 0, 1, 2 and 3 cycles gave the same
+result (22.5 / 22.5 / 22.4 / 22.3 dB, residual 0.03 deg / 0.03 mm): the first registration was
+already accurate, and each extra cycle added about 17 s.
+
+How to choose:
+
+* **Adult / paediatric T2 and FLAIR:** keep 1. Use 2 if, in Compare (key B), an input series
+  still looks shifted against the result after a large head movement between series.
+* **Fetal:** keep 6; try 8 for strong motion (slightly better on the phantom at little extra
+  time). Below 4, slice motion stays partly uncorrected; 1 cycle registers only packets of
+  slices and drops half of them.
+* More cycles do not repair a slice that is corrupted within itself (motion during its own echo
+  train, signal loss); the outlier check excludes those.
 
 ## 2-D FLAIR
 

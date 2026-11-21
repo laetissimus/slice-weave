@@ -404,5 +404,127 @@
   ],
   "recon_seconds": 57.6,
   "seconds": 232.0
+ },
+ "cycles": {
+  "fetal_slice_to_volume": [
+   {
+    "cycles": 1,
+    "srr": {
+     "psnr_db": 18.43,
+     "ssim": 0.4827,
+     "ncc": 0.5478
+    },
+    "slice_pose_error_mm": 3.28,
+    "slices_used": 84,
+    "slices": 169,
+    "seconds": 101.2
+   },
+   {
+    "cycles": 2,
+    "srr": {
+     "psnr_db": 21.56,
+     "ssim": 0.6722,
+     "ncc": 0.751
+    },
+    "slice_pose_error_mm": 2.65,
+    "slices_used": 149,
+    "slices": 169,
+    "seconds": 138.1
+   },
+   {
+    "cycles": 3,
+    "srr": {
+     "psnr_db": 22.2,
+     "ssim": 0.7113,
+     "ncc": 0.7884
+    },
+    "slice_pose_error_mm": 2.4,
+    "slices_used": 151,
+    "slices": 169,
+    "seconds": 151.4
+   },
+   {
+    "cycles": 4,
+    "srr": {
+     "psnr_db": 22.48,
+     "ssim": 0.7267,
+     "ncc": 0.8041
+    },
+    "slice_pose_error_mm": 2.23,
+    "slices_used": 151,
+    "slices": 169,
+    "seconds": 163.6
+   },
+   {
+    "cycles": 6,
+    "srr": {
+     "psnr_db": 22.91,
+     "ssim": 0.7483,
+     "ncc": 0.8242
+    },
+    "slice_pose_error_mm": 1.93,
+    "slices_used": 155,
+    "slices": 169,
+    "seconds": 202.9
+   },
+   {
+    "cycles": 8,
+    "srr": {
+     "psnr_db": 23.28,
+     "ssim": 0.7648,
+     "ncc": 0.8405
+    },
+    "slice_pose_error_mm": 1.61,
+    "slices_used": 155,
+    "slices": 169,
+    "seconds": 204.0
+   }
+  ],
+  "adult_between_series": [
+   {
+    "cycles": 0,
+    "srr": {
+     "psnr_db": 22.45,
+     "ssim": 0.8069,
+     "ncc": 0.9019
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 53.8
+   },
+   {
+    "cycles": 1,
+    "srr": {
+     "psnr_db": 22.45,
+     "ssim": 0.8069,
+     "ncc": 0.9019
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 60.4
+   },
+   {
+    "cycles": 2,
+    "srr": {
+     "psnr_db": 22.38,
+     "ssim": 0.8042,
+     "ncc": 0.9002
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 77.5
+   },
+   {
+    "cycles": 3,
+    "srr": {
+     "psnr_db": 22.33,
+     "ssim": 0.8036,
+     "ncc": 0.8992
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 95.3
+   }
+  ]
  }
 }

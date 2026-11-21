@@ -238,11 +238,14 @@
       if (!$$("#setRes option").some(o => o.value === $("#setRes").value)) $("#setRes").append(el("option", { text: String(p.resolution) }));
       $("#setRes").value = [...$$("#setRes option")].find(o => Math.abs(Number(o.value) - p.resolution) < 1e-6).value;
       $("#setMotion").value = p.motion; $("#setCycles").value = p.cycles;
+      $("#cyclesHint").textContent = cyclesHint(p.motion, p.cycles);
       $("#setAlphaMode").value = p.alpha === null || p.alpha === undefined ? "auto" : "manual";
       $("#alphaField").hidden = $("#setAlphaMode").value === "auto"; if (p.alpha) $("#setAlpha").value = p.alpha;
       $("#setReg").value = p.regularizer; $("#setOutlier").checked = !!p.outlier_rejection; $("#setBias").checked = !!p.bias_correction;
     }
     $$("#secSettings select, #secSettings input, #secPlan button, #roiShape").forEach(x => { if (!x.closest("#modePick")) x.disabled = !plan; });
+    $("#setCycles").disabled = !plan || $("#setMotion").value === "none";
+    if (!plan) $("#cyclesHint").textContent = "";
   }
   async function changePlan(body) {
     if (!S.cid || !S.case.plan) return;
@@ -279,6 +282,16 @@
     $("#alphaField").hidden = $("#setAlphaMode").value === "auto";
     changePlan({ params: params() });
   }));
+
+  function cyclesHint(motion, n) {
+    if (motion === "none") return "Cycles: not used without motion correction (intensity correction and the outlier check run once).";
+    if (motion === "stack") return "Cycles: rounds of re-registering each series to the latest volume, each followed by intensity correction, " +
+      "the outlier check and a new reconstruction. 1 is enough in most cases; 2 if the head moved a lot between series." +
+      (n === 0 ? " 0: only the first registration, against the reference stack." : "");
+    return "Cycles: rounds of slice-to-volume correction, coarse to fine (1: whole stacks and packets of slices; 2: smaller packets, " +
+      "then single slices; 3 and more: single slices, finer each round). Default 6; 8 for strong motion." +
+      (n < 4 ? " Below 4, slice motion stays partly uncorrected." : "");
+  }
 
   // ---------------------------------------------------------------- run
   function renderRun() {

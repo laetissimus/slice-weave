@@ -241,6 +241,51 @@ def fetal_phantom(out, log):
     return results
 
 
+def cycles_sweep(out, log):
+    """Effect of the number of motion-correction cycles (fetal phantom, slice-to-volume; adult phantom,
+    between series). Same stacks for every setting."""
+    res_all = {"fetal_slice_to_volume": [], "adult_between_series": []}
+    truth, taff, info = simulate.phantom_head("fetal", spacing=0.6)
+    a, b, c = info["brain_half_axes_mm"]
+    stacks, Ts = simulate.simulate_stacks(truth, taff, "fetal", static=truth, fetal_radius=(a * 1.3, b * 1.3, c * 1.3),
+                                          noise=0.02, motion_deg=6.0, motion_mm=3.0)
+    roi = default_roi(stacks, 0, "fetal")
+    roi.center, roi.half = np.zeros(3), np.array([a + 4, b + 4, c + 4])
+    for n in (1, 2, 3, 4, 6, 8):
+        rec = Reconstruction(stacks, roi, Params.preset("fetal", cycles=n), log=lambda m: None)
+        res = rec.run()
+        W = res.grid.vox_to_world(np.indices(res.grid.shape).reshape(3, -1).T)
+        inb = ((W[:, 0] / a) ** 2 + (W[:, 1] / b) ** 2 + (W[:, 2] / c) ** 2) < 1.0
+        r = register(Sampler(truth, Grid(truth.shape, taff)), W[inb][::4], res.volume.reshape(-1)[inb][::4],
+                     center=[0, 0, 0], iters=40, huber_k=None)
+        tg = on_grid(truth, taff, res.grid, r.D)
+        row = {"cycles": n, "srr": metrics.compare(res.volume, tg, inb.reshape(res.grid.shape)),
+               "slice_pose_error_mm": round(_pose_error(rec, Ts), 2),
+               "slices_used": int(sum(s["slices_used"] for s in res.report["stacks"])),
+               "slices": int(sum(s["slices"] for s in res.report["stacks"])),
+               "seconds": res.report["timing_s"]["total"]}
+        res_all["fetal_slice_to_volume"].append(row)
+        log(f"cycles fetal: {json.dumps(row)}")
+    truth, taff, info = simulate.phantom_head("adult", spacing=0.6)
+    ax = info["brain_half_axes_mm"]
+    stacks, Ts = simulate.simulate_stacks(truth, taff, "adult", motion=False, noise=0.02, bias=0.15)
+    roi = default_roi(stacks, 0, "adult")
+    from sliceweave.geometry import rigid_params
+    for n in (0, 1, 2, 3):
+        res = Reconstruction(stacks, roi, Params.preset("adult", cycles=n), log=lambda m: None).run()
+        g = res.grid
+        W = g.vox_to_world(np.indices(g.shape).reshape(3, -1).T)
+        m = (((W[:, 0] / ax[0]) ** 2 + (W[:, 1] / ax[1]) ** 2 + (W[:, 2] / ax[2]) ** 2) < 1.0).reshape(g.shape)
+        errs = [rigid_params(np.linalg.inv(Ts[k][0]) @ res.transforms[k][0], roi.center) for k in (1, 2)]
+        row = {"cycles": n, "srr": metrics.compare(res.volume, on_grid(truth, taff, g), m),
+               "residual_deg_max": round(max(e[0] for e in errs), 3),
+               "residual_mm_max": round(max(e[1] for e in errs), 3),
+               "seconds": res.report["timing_s"]["total"]}
+        res_all["adult_between_series"].append(row)
+        log(f"cycles adult: {json.dumps(row)}")
+    return res_all
+
+
 def real_fetal(data_dir: Path, out, log):
     from sliceweave.series import nifti_stack
     from sliceweave.stacks import Stack
@@ -289,7 +334,8 @@ def main():
     ap.add_argument("--out", default="docs/validation")
     ap.add_argument("--adult-t1")
     ap.add_argument("--fetal-dir")
-    ap.add_argument("--only", help="comma-separated subset: phantom-adult,t1-adult,phantom-flair,phantom-fetal,real-fetal")
+    ap.add_argument("--only", help="comma-separated subset: phantom-adult,t1-adult,phantom-flair,phantom-fetal,real-fetal; "
+                                     "cycles (number-of-cycles sweep, only when named)")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -328,6 +374,8 @@ def main():
         allres["phantom-fetal"] = fetal_phantom(out, log)
     if a.fetal_dir and want("real-fetal"):
         allres["real-fetal"] = real_fetal(Path(a.fetal_dir), out, log)
+    if only is not None and "cycles" in only:  # not part of the default run (about 25 min)
+        allres["cycles"] = cycles_sweep(out, log)
     resf.write_text(json.dumps(allres, indent=1), encoding="utf-8")
     print(f"wrote {resf}")
 

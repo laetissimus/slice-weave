@@ -143,6 +143,41 @@ misregistration of the uncorrected one.
 
 ![real fetal](validation/real-fetal.png)
 
+## Number of cycles
+
+`tools/validate.py --only cycles`: the same simulated stacks reconstructed with different numbers
+of motion-correction cycles (defaults otherwise).
+
+Fetal phantom, slice-to-volume (the stacks of the fetal phantom case above):
+
+| Cycles | PSNR (dB) | SSIM | NCC | slice position error (mm) | slices used | time (s) |
+|---|---|---|---|---|---|---|
+| 1 | 18.43 | 0.483 | 0.548 | 3.28 | 84 / 169 | 101 |
+| 2 | 21.56 | 0.672 | 0.751 | 2.65 | 149 / 169 | 138 |
+| 3 | 22.20 | 0.711 | 0.788 | 2.40 | 151 / 169 | 151 |
+| 4 | 22.48 | 0.727 | 0.804 | 2.23 | 151 / 169 | 164 |
+| **6 (default)** | **22.91** | **0.748** | **0.824** | **1.93** | **155 / 169** | **203** |
+| 8 | 23.28 | 0.765 | 0.841 | 1.61 | 155 / 169 | 204 |
+
+Slice position error before correction 4.02 mm; without motion correction 17.86 dB / 0.404; with
+the true motion 25.47 dB / 0.789. One cycle registers stacks and packets only and keeps the
+lowest outlier threshold against a still blurred volume, so half of the slices are excluded.
+The gain continues to 8 cycles on this phantom; the default stays 6, the setting used on the
+real fetal data.
+
+Adult phantom, motion between series (true 1.6 deg / 1.6 mm and 3.5 deg / 1.3 mm):
+
+| Cycles | PSNR (dB) | SSIM | residual motion (max) | time (s) |
+|---|---|---|---|---|
+| 0 | 22.45 | 0.807 | 0.031 deg / 0.031 mm | 54 |
+| **1 (default)** | **22.45** | **0.807** | **0.031 deg / 0.031 mm** | **60** |
+| 2 | 22.38 | 0.804 | 0.031 deg / 0.031 mm | 78 |
+| 3 | 22.33 | 0.804 | 0.031 deg / 0.031 mm | 95 |
+
+The registration to the reference stack was already accurate; the cycle re-checks it against the
+super-resolved volume and matters when the first registration is off (large movement between
+series, a poor reference stack).
+
 ## Regularisation
 
 The automatic regularisation (`alpha = 0.1 + 65 x relative noise`, Huber penalty) was chosen on
@@ -160,16 +195,18 @@ FLAIR preset: the volumes used as registration targets keep this weight, the fin
 
 ## Tests run on every build
 
-`pytest` (29 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
+`pytest` (33 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
 3D motion (< 0.2 deg / 0.2 mm), SRR beats the average and recovers between-series motion
 (< 0.5 deg / 0.5 mm), DICOM write/read geometry, NIfTI round trip and JSON sidecar thickness,
 DICOM decoding (implicit, big-endian, RLE), case ID and de-identification rules, server login /
 CSRF / Host / CSP, an API import-to-viewer round trip, the network guard and the static network
 audit, FLAIR recognition (names, sequence, TI/TE; HASTE not taken for FLAIR), acquired
 resolution from DICOM and from sidecars, the PSF following the acquired resolution, the noise
-estimate on zero-filled images, the FLAIR preset refusing slice-to-volume correction, and the plan
-switching stacks and warning on mixed contrasts. `sliceweave selftest` (DICOM round trip, FLAIR recognition, adult phantom end-to-end) runs on Windows from
-source and inside the built executable with outbound network traffic blocked.
+estimate on zero-filled images, the FLAIR preset refusing slice-to-volume correction, the plan
+switching stacks and warning on mixed contrasts, and the cycle schedule (registration and
+intensity / outlier passes for each setting). `sliceweave selftest` (DICOM round trip, FLAIR
+recognition, adult phantom end-to-end) runs on Windows from source and inside the built
+executable with outbound network traffic blocked.
 
 ## Not yet validated
 

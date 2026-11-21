@@ -103,6 +103,8 @@ cycle).
      min(0.6, median - 4 MAD)), or if the slice scale is outside 0.4-2.5. Excluded slices are
      re-tested every cycle. Pixel weights: Huber on the residuals.
    * SRR (warm start).
+   With 0 cycles, or without motion correction, one pass of intensity correction and the outlier
+   test still runs (when switched on). Effect of the number of cycles: docs/VALIDATION.md.
 5. **Final SRR** with more iterations, masking, and the average baseline.
 
 ## 6. Modes

@@ -87,13 +87,14 @@
           <select id="setRes"><option>0.5</option><option>0.6</option><option>0.7</option><option>0.8</option><option>0.9</option><option>1.0</option><option>1.2</option><option>1.5</option></select></label>
         <label class="field">Motion correction
           <select id="setMotion"><option value="none">None</option><option value="stack">Between series</option><option value="slice">Slice-to-volume</option></select></label>
-        <label class="field">Cycles <input id="setCycles" type="number" min="0" max="8" step="1"></label>
+        <label class="field" title="Rounds of motion correction; each is followed by intensity correction, the outlier check and a new reconstruction">Cycles <input id="setCycles" type="number" min="0" max="8" step="1"></label>
         <label class="field">Regularisation
           <select id="setAlphaMode"><option value="auto">Automatic (noise)</option><option value="manual">Manual</option></select></label>
         <label class="field" id="alphaField" hidden>Weight (alpha) <input id="setAlpha" type="number" min="0.01" step="0.1"></label>
         <label class="field">Penalty
           <select id="setReg"><option value="huber">Edge-preserving (Huber)</option><option value="tikhonov">Smooth (Tikhonov)</option></select></label>
       </div>
+      <p class="hint" id="cyclesHint"></p>
       <label class="check"><input type="checkbox" id="setOutlier"><span>Reject outlier slices<small>Slices that do not match the volume (motion during the echo train, signal loss) are excluded; pixels are down-weighted robustly.</small></span></label>
       <label class="check"><input type="checkbox" id="setBias"><span>Correct intensity differences<small>Per-slice scaling and a smooth bias field per stack (coil sensitivity).</small></span></label>
       <div class="kv" id="gridInfo"></div>
