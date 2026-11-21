@@ -70,6 +70,8 @@ TAGS = {
     "SpacingBetweenSlices": (0x00180088, "DS"), "DeviceSerialNumber": (0x00181000, "LO"),
     "ProtocolName": (0x00181030, "LO"), "ContrastBolusRoute": (0x00181040, "LO"),
     "TriggerTime": (0x00181060, "DS"), "FlipAngle": (0x00181314, "DS"),
+    "AcquisitionMatrix": (0x00181310, "US"), "InPlanePhaseEncodingDirection": (0x00181312, "CS"),
+    "PercentSampling": (0x00180093, "DS"), "PercentPhaseFieldOfView": (0x00180094, "DS"),
     "PulseSequenceName": (0x00189005, "SH"), "InversionTimes": (0x00189079, "FD"),
     "EffectiveEchoTime": (0x00189082, "FD"), "DiffusionBValue": (0x00189087, "FD"),
     "MRTimingAndRelatedParametersSequence": (0x00189112, "SQ"),

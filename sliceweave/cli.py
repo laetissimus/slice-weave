@@ -20,7 +20,7 @@ from .config import NAME, RESEARCH_BANNER, VERSION, load
 
 def main(argv=None):
     netguard.install()
-    ap = argparse.ArgumentParser(prog="sliceweave", description=f"{NAME} {VERSION}: 3-plane 2-D HASTE stacks -> "
+    ap = argparse.ArgumentParser(prog="sliceweave", description=f"{NAME} {VERSION}: 3-plane 2-D stacks (single-shot T2 or FLAIR) -> "
                                  f"isotropic volume (super-resolution reconstruction). {RESEARCH_BANNER}.")
     ap.add_argument("--version", action="version", version=f"{NAME} {VERSION}")
     ap.add_argument("--data", help="data folder (default ~/SliceWeave-Data or SLICEWEAVE_DATA)")
@@ -31,7 +31,9 @@ def main(argv=None):
     r = sub.add_parser("recon", help="reconstruct without the viewer")
     r.add_argument("inputs", nargs="+", help="DICOM folders/zips and/or NIfTI stacks (masks: files named *mask*)")
     r.add_argument("-o", "--out", required=True, help="output NIfTI (.nii.gz)")
-    r.add_argument("--mode", choices=["adult", "fetal"], default="adult")
+    r.add_argument("--mode", choices=["adult", "fetal", "flair"], default="adult",
+                   help="adult: single-shot T2 (adult/paediatric); fetal; flair: 2-D multi-shot FLAIR (motion "
+                        "between series only)")
     r.add_argument("--resolution", type=float)
     r.add_argument("--reference", type=int, help="reference stack number (1 = first); default: least motion")
     r.add_argument("--motion", choices=["none", "stack", "slice"])
@@ -42,7 +44,7 @@ def main(argv=None):
     r.add_argument("--dicom-out", help="also write a de-identified DICOM series to this folder")
     r.add_argument("--report", help="write the report (JSON)")
     m = sub.add_parser("simulate", help="write simulated stacks of a phantom")
-    m.add_argument("--kind", choices=["adult", "fetal"], default="adult")
+    m.add_argument("--kind", choices=["adult", "fetal", "flair"], default="adult")
     m.add_argument("-o", "--out", required=True)
     t = sub.add_parser("selftest", help="end-to-end test on synthetic phantoms")
     t.add_argument("--full", action="store_true", help="also the fetal (slice motion) test; slower")
@@ -104,7 +106,7 @@ def _recon(a):
     from .dicom_write import new_uid, write_series
     from .ingest import suggest_reference
     from .nifti import read_nifti, write_nifti
-    from .recon import Params, Reconstruction, default_roi
+    from .recon import FLAIR_SLICE_MSG, MODE_LABELS, Params, Reconstruction, default_roi
     from .stacks import Stack
     paths = [Path(p) for p in a.inputs]
     import tempfile
@@ -120,6 +122,12 @@ def _recon(a):
                 continue
             st = series.build_stack(s, "stack")
             st.name = f"{st.plane} {len(stacks) + 1}"
+            side = st.meta.pop("sidecar_text", "")
+            st.meta["flair"] = series.looks_like_flair(s, text=side, ti_ms=s.ti or st.meta.get("ti_ms"),
+                                                       te_ms=s.te or st.meta.get("te_ms"))
+            st.meta["single_shot"] = not st.meta["flair"] and (
+                series.looks_like_haste(s) or any(h in side.lower() for h in series.HASTE_HINTS))
+            st.meta["desc"] = s.description
             if st.nz >= 5:
                 stacks.append(st)
         for mk in masks:
@@ -131,6 +139,19 @@ def _recon(a):
                     print(f"  mask attached to {st.name}")
     if not stacks:
         sys.exit("no usable stacks")
+    # one contrast per reconstruction: FLAIR stacks in flair mode, single-shot T2 otherwise (when recognised)
+    key = "flair" if a.mode == "flair" else "single_shot"
+    if any(st.meta.get(key) for st in stacks):
+        for st in stacks:
+            if not st.meta.get(key):
+                print(f"  not used in {a.mode} mode: {st.name} ({st.meta.get('desc') or 'series'})")
+        stacks = [st for st in stacks if st.meta.get(key)]
+        for i, st in enumerate(stacks):
+            st.name = f"{st.plane} {i + 1}"
+    elif a.mode == "flair":
+        print("NOTE: no series looks like FLAIR (name or inversion time): all stacks are used")
+    if a.mode == "flair" and a.motion == "slice":
+        sys.exit(FLAIR_SLICE_MSG)
     entries = [{"id": str(i), "include": True, "plane": s.plane} for i, s in enumerate(stacks)]
     ref = (a.reference - 1) if a.reference else int(suggest_reference(stacks, entries, a.mode))
     p = Params.preset(a.mode, resolution=a.resolution, motion=a.motion, cycles=a.cycles, reference=ref)
@@ -144,13 +165,13 @@ def _recon(a):
         print("NOTE: fetal mode without --roi-center or a brain mask: the region is the centre of the reference stack")
     print(f"reference stack: {stacks[ref].name}; {len(stacks)} stacks")
     res = Reconstruction(stacks, roi, p, log=print).run()
-    write_nifti(a.out, res.volume, res.grid.affine, f"SliceWeave {VERSION} SRR RESEARCH")
+    write_nifti(a.out, res.volume, res.grid.affine, f"SliceWeave {VERSION} SRR {MODE_LABELS[a.mode]} RESEARCH")
     print(f"wrote {a.out}  ({res.grid.shape}, {res.grid.spacing:.2f} mm)")
     if a.dicom_out:
         v = res.volume
         hi = float(np.percentile(v[v > 0], 99.9)) if (v > 0).any() else 1.0
         write_series(v, res.grid.affine, Path(a.dicom_out),
-                     {"SeriesDescription": f"SliceWeave SRR {a.mode} RESEARCH", "PatientID": "SLICEWEAVE",
+                     {"SeriesDescription": f"SliceWeave SRR {MODE_LABELS[a.mode]} RESEARCH", "PatientID": "SLICEWEAVE",
                       "PatientName": "", "StudyInstanceUID": new_uid(), "SeriesNumber": 9100,
                       "ImageType": ["DERIVED", "SECONDARY", "SRR"]}, slope=max(hi / 4000, 1e-6))
         print(f"wrote DICOM series to {a.dicom_out}")
@@ -163,16 +184,22 @@ def _simulate(a):
     from .nifti import write_nifti
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    truth, aff, info = simulate.phantom_head(a.kind, spacing=1.0 if a.kind == "adult" else 0.7)
+    truth, aff, info = simulate.phantom_head(a.kind, spacing=0.7 if a.kind == "fetal" else 1.0)
     ax = info["brain_half_axes_mm"]
-    kw = {} if a.kind == "adult" else {"static": truth, "fetal_radius": tuple(v * 1.3 for v in ax)}
+    kw = {"static": truth, "fetal_radius": tuple(v * 1.3 for v in ax)} if a.kind == "fetal" else {}
     stacks, _ = simulate.simulate_stacks(truth, aff, a.kind, log=print, **kw)
     write_nifti(out / "truth.nii.gz", truth, aff, "SliceWeave phantom SIMULATED")
     for n, st in enumerate(stacks):
         A = st.slice_aff[0].copy()
         A[:3, 2] = st.normal * st.spacing
         write_nifti(out / f"stack{n + 1}_{st.plane}.nii.gz", st.data, A, "SliceWeave SIMULATED stack")
-        (out / f"stack{n + 1}_{st.plane}.json").write_text(json.dumps({"SliceThickness": st.thickness}), encoding="utf-8")
+        side = {"SliceThickness": st.thickness,
+                "SeriesDescription": f"SIM {st.plane} " + ("2D FLAIR" if a.kind == "flair" else "HASTE")}
+        if st.meta.get("acquired_matrix"):   # dcm2niix-style description of the zero-filled acquisition
+            side.update({"PhaseEncodingDirection": "i", "AcquisitionMatrixPE": st.meta["acquired_matrix"][0],
+                         "ReconMatrixPE": st.meta["recon_matrix"][0], "BaseResolution": st.meta["acquired_matrix"][1],
+                         "InversionTime": 2.5, "EchoTime": 0.086, "RepetitionTime": 9.0})
+        (out / f"stack{n + 1}_{st.plane}.json").write_text(json.dumps(side), encoding="utf-8")
     print(f"wrote {len(stacks)} simulated stacks and truth.nii.gz to {out}")
 
 

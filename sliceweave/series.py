@@ -84,6 +84,9 @@ class SeriesInfo:
     in_plane: tuple | None = None
     orientation: str = ""
     reject: str = ""
+    acq_matrix: list | None = None    # DICOM AcquisitionMatrix: freq rows, freq cols, phase rows, phase cols
+    pe_dir: str = ""                  # InPlanePhaseEncodingDirection: ROW | COL
+    pct_phase_fov: float | None = None
     warnings: list = field(default_factory=list)
     phi: dict = field(default_factory=dict)
     sop_class: str = ""
@@ -314,6 +317,10 @@ def _add_dicom(series: dict, ds: dicom.Dataset, path: str):
             if s.ti is None and ds.InversionTimes is not None:
                 s.ti = _f(ds.InversionTimes)
             s.field_t = _f(ds.MagneticFieldStrength)
+            am = ds.AcquisitionMatrix
+            s.acq_matrix = [int(v) for v in am] if isinstance(am, list) and len(am) == 4 else None
+            s.pe_dir = _s(ds.InPlanePhaseEncodingDirection).strip().upper()
+            s.pct_phase_fov = _f(ds.PercentPhaseFieldOfView)
             s.manufacturer = _s(ds.Manufacturer)
             s.model = _s(ds.ManufacturerModelName)
             agent = _s(ds.ContrastBolusAgent).strip()
@@ -381,9 +388,85 @@ HASTE_HINTS = ("haste", "ssfse", "ss-fse", "ssh_tse", "sshtse", "ss_tse", "singl
                "t2_ss", "fiesta", "trufi", "bfffe", "ss-tse", "sstse")
 
 
+FLAIR_HINTS = ("flair", "tirm", "dark fluid", "dark-fluid", "darkfluid", "dark_fluid", "t2_fl", "t2fl", "t2-fl",
+               "fluid att", "fluid-att", "irfse", "ir_fse", "ir-fse", "t2 ir", "t2_ir")
+
+
 def looks_like_haste(s: SeriesInfo) -> bool:
     t = (s.text() + " " + s.sequence).lower()
+    if looks_like_flair(s):
+        return False
     return any(h in t for h in HASTE_HINTS)
+
+
+def looks_like_flair(s: SeriesInfo | None = None, text: str = "", ti_ms: float | None = None,
+                     te_ms: float | None = None) -> bool:
+    """2-D FLAIR: the name says so, or a long inversion time (> 1500 ms) with a long echo time
+    (> 60 ms; T2-weighted fluid-attenuated inversion recovery). Siemens names it TIRM (sequence *tir2d)."""
+    if s is not None:
+        text = (s.text() + " " + s.sequence + " " + text)
+        ti_ms = s.ti if ti_ms is None else ti_ms
+        te_ms = s.te if te_ms is None else te_ms
+    t = text.lower()
+    if any(h in t for h in FLAIR_HINTS):
+        return True
+    if "tir2d" in t.replace("*", "") and (ti_ms is None or ti_ms > 1200):
+        return True
+    return bool(ti_ms and te_ms and ti_ms > 1500 and te_ms > 60)
+
+
+def acquired_resolution(s: SeriesInfo, rows: int, cols: int, spacing: tuple) -> tuple[float, float] | None:
+    """In-plane acquired resolution (horizontal = along a row, vertical = along a column), mm,
+    from AcquisitionMatrix and the phase-encoding direction. None when the header does not say
+    or the result is implausible (then the pixel size is used)."""
+    am = s.acq_matrix
+    if not am or len(am) != 4:
+        return None
+    n_freq, n_phase = max(am[0], am[1]), max(am[2], am[3])
+    if n_freq <= 0 or n_phase <= 0:
+        return None
+    row_sp, col_sp = float(spacing[0]), float(spacing[1])   # PixelSpacing: between rows, between columns
+    ext_h, ext_v = cols * col_sp, rows * row_sp
+    pct = s.pct_phase_fov or 100.0
+    if s.pe_dir == "ROW":       # phase encoded along the row (horizontal)
+        if rows == cols and pct < 100:
+            ext_h *= pct / 100.0
+        res = (ext_h / n_phase, ext_v / n_freq)
+    elif s.pe_dir == "COL":     # phase encoded along the column (vertical)
+        if rows == cols and pct < 100:
+            ext_v *= pct / 100.0
+        res = (ext_h / n_freq, ext_v / n_phase)
+    else:
+        n = max(n_freq, n_phase)
+        res = (ext_h / n, ext_v / n)
+    out = (max(res[0], col_sp), max(res[1], row_sp))
+    if out[0] > 4 * col_sp or out[1] > 4 * row_sp:
+        return None
+    return out
+
+
+def sidecar_resolution(j: dict, shape: tuple, zooms: tuple) -> list | None:
+    """Acquired in-plane resolution per NIfTI axis from a dcm2niix JSON sidecar
+    (AcquisitionMatrixPE / ReconMatrixPE along the phase-encoding axis; BaseResolution along the
+    readout for Siemens). None for an axis that cannot be determined."""
+    pe = str(j.get("PhaseEncodingDirection") or j.get("PhaseEncodingAxis") or "")[:1]
+    if pe not in ("i", "j"):
+        return None
+    ax_pe = 0 if pe == "i" else 1
+    ax_ro = 1 - ax_pe
+    out = [None, None, None]
+    acq, rec = j.get("AcquisitionMatrixPE"), j.get("ReconMatrixPE")
+    if isinstance(acq, (int, float)) and isinstance(rec, (int, float)) and acq > 0 and rec > 0:
+        out[ax_pe] = float(zooms[ax_pe]) * max(rec / acq, 1.0)
+    base = j.get("BaseResolution")
+    if isinstance(base, (int, float)) and base > 0:
+        out[ax_ro] = float(zooms[ax_ro]) * max(shape[ax_ro] / base, 1.0)
+    if all(v is None for v in out):
+        return None
+    for a in (0, 1):
+        if out[a] is not None and out[a] > 4 * float(zooms[a]):
+            out[a] = None
+    return out
 
 
 def build_stack(s: SeriesInfo, name: str = "") -> Stack:
@@ -436,6 +519,9 @@ def build_stack(s: SeriesInfo, name: str = "") -> Stack:
     if len(gaps) and np.max(np.abs(gaps - np.median(gaps))) > max(0.05, 0.1 * np.median(gaps)):
         s.warnings.append(f"uneven slice gaps ({gaps.min():.2f}-{gaps.max():.2f} mm): kept as acquired")
     meta = {"source": "dicom"}
+    ar = acquired_resolution(s, fr[0].rows, fr[0].cols, fr[0].spacing)
+    if ar is not None:
+        meta["acq_res"] = [round(ar[0], 4), round(ar[1], 4)]   # along i (row direction), j (column direction)
     times = [f.acq_time for f in fr]
     if all(t is not None for t in times) and len(set(np.round(times, 3))) == len(times):
         meta["acq_order"] = [int(i) for i in np.argsort(np.argsort(times, kind="stable"))]  # rank in time per slice
@@ -459,10 +545,16 @@ def nifti_stack(path: Path, name: str = "") -> Stack:
             if isinstance(j.get("SliceThickness"), (int, float)) and j["SliceThickness"] > 0:
                 thick = float(j["SliceThickness"])
                 meta["thickness_from"] = "JSON sidecar"
-            # technical text used only to recognise single-shot series and fetal exams (not stored)
+            # technical text used only to recognise single-shot / FLAIR series and fetal exams (not stored)
             meta["sidecar_text"] = " ".join(str(j.get(k, "")) for k in (
                 "SeriesDescription", "ProtocolName", "SequenceName", "PulseSequenceDetails", "ProcedureStepDescription",
-                "BodyPartExamined") if isinstance(j.get(k, ""), str))
+                "BodyPartExamined", "ScanningSequence", "SequenceVariant") if isinstance(j.get(k, ""), str))
+            for k, kk in (("InversionTime", "ti_ms"), ("EchoTime", "te_ms"), ("RepetitionTime", "tr_ms")):
+                if isinstance(j.get(k), (int, float)) and j[k] > 0:
+                    meta[kk] = float(j[k]) * (1000.0 if j[k] < 30 else 1.0)   # BIDS uses seconds
+            rs = sidecar_resolution(j, v.data.shape, tuple(np.sqrt((v.affine[:3, :3] ** 2).sum(axis=0))))
+            if rs is not None:
+                meta["acq_res_axes"] = rs
         except (OSError, ValueError):
             pass
     if v.meta.get("warning"):

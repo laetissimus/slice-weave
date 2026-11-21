@@ -30,6 +30,9 @@ def output_paths(store: CaseStore, cid: str) -> dict:
     return p
 
 
+SHORT = {"adult": "T2", "fetal": "fetal T2", "flair": "FLAIR"}
+
+
 def nifti_name(case: dict) -> str:
     m = (case.get("plan") or {}).get("mode", "srr")
     vox = (case.get("result") or {}).get("grid", {}).get("spacing", 0)
@@ -60,7 +63,7 @@ def dicom_zip(store: CaseStore, cid: str, which: str = "srr", attach: dict | Non
     vox = float(np.linalg.norm(v.affine[:3, 0]))
     label = "SRR" if which == "srr" else "AVG"
     hdr = {
-        "SeriesDescription": f"SliceWeave {label} {mode} {vox:.2f}mm RESEARCH",
+        "SeriesDescription": f"SliceWeave {label} {SHORT.get(mode, mode)} {vox:.2f}mm RESEARCH",
         "SeriesNumber": 9100 if which == "srr" else 9101,
         "ImageType": ["DERIVED", "SECONDARY", "SRR" if which == "srr" else "AVERAGE"],
         "Manufacturer": "SliceWeave (research software)",
