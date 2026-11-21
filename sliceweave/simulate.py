@@ -235,7 +235,8 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
                     noise: float = 0.02, bias: float = 0.15, corrupt: int | None = None, log=None,
                     static=None, fetal_radius=None, motion_deg: float = 6.0, motion_mm: float = 3.0,
                     tilt_deg: float | None = None, center=None, cover_mm: float | None = None,
-                    fov_mm: float | None = None) -> tuple[list[Stack], list[np.ndarray]]:
+                    fov_mm: float | None = None, pixel_mm: float | None = None, thick_mm: float | None = None,
+                    gap_mm: float | None = None) -> tuple[list[Stack], list[np.ndarray]]:
     """Simulate 3-plane stacks (adult: AX, COR, SAG once each; fetal: each orientation twice,
     oblique, with slice motion). Returns the stacks and the true per-slice transforms
     (pixel world -> truth world)."""
@@ -265,6 +266,12 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
         cover = float(cover_mm)
     if fov_mm:
         fov = (float(fov_mm), float(fov_mm))
+    if pixel_mm and not flair:
+        pixel = float(pixel_mm)
+    if thick_mm:
+        thick = float(thick_mm)
+    if gap_mm is not None:
+        gap = float(gap_mm)
     base_axes = {"AX": np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], float).T,   # rows x, columns -y
                  "COR": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float).T,
                  "SAG": np.array([[0, 1, 0], [0, 0, -1], [-1, 0, 0]], float).T}

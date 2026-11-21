@@ -56,9 +56,10 @@ pixels for a 1 mm output), with the PSF widened accordingly.
   pixels sampled at about the acquired spacing: zero-filled interpolation correlates neighbouring
   pixels and the pixel-level estimate would read the noise up to 10 times too low. The coefficient
   was chosen on simulated stacks with known truth (docs/VALIDATION.md).
-* FLAIR preset: the volumes that serve as registration targets use this weight; the final volume
-  uses 0.35 x this weight, which keeps more of the contrast of small lesions for a small loss of
-  PSNR / SSIM (docs/VALIDATION.md, 2-D FLAIR). A fixed alpha applies to all volumes.
+* The volumes that serve as registration targets use this weight; the final volume uses a
+  fraction of it: adult / paediatric T2 0.25 x (keeps the sulci and the cortical ribbon; docs/
+  VALIDATION.md, "Grey-white matter and sulci"), FLAIR 0.35 x (keeps the contrast of small
+  lesions; "2-D FLAIR"), fetal 1.0 x. A fixed alpha applies to all volumes.
 * Solver: preconditioned conjugate gradients (Jacobi preconditioner), non-negativity by
   clipping at the end.
 * Output masking: voxels with too little data (coverage `A^T W 1` below 15 % of the typical
@@ -117,7 +118,7 @@ cycle).
 | Output voxel | 1.0 mm | 1.0 mm | 0.8 mm |
 | Initial volume | reference stack | reference stack | all stacks |
 | Outlier slices | only robust outliers | only robust outliers | NCC 0.5 -> 0.7 |
-| Final regularisation | noise-calibrated | 0.35 x noise-calibrated | noise-calibrated |
+| Final regularisation | 0.25 x noise-calibrated | 0.35 x noise-calibrated | noise-calibrated |
 
 **Why FLAIR is handled differently.** A single-shot slice is acquired in under a second, so it is
 a snapshot with one position, and slices can be repositioned one by one. A multi-shot 2-D FLAIR
@@ -146,7 +147,17 @@ step rotates the result about its centre in its own axes and resamples it with c
 the affine (NIfTI) and ImageOrientationPatient (DICOM) always describe the true position in the
 scanner frame. For fetal studies this lets the volume be shown in fetal standard planes.
 
-## 8. What it does not do (yet)
+## 8. Display window
+
+The viewer opens every image in a *Brain* window: the most common intensity inside the head
+above 12 % of the bright end (the parenchyma peak of the histogram) is found, and the window runs
+from 0.4 x to 1.8 x that value. Grey and white matter then spread over the grey levels and CSF
+is near white, instead of the parenchyma being squeezed into the lower half by bright CSF.
+*Full range* (0 to the 99th percentile) and right-drag (width, level) remain. DICOM exports carry
+both windows (BRAIN first, then FULL; WindowCenterWidthExplanation), so PACS opens the brain
+window. The window changes the display only, not the stored values.
+
+## 9. What it does not do (yet)
 
 * No automatic fetal brain localisation/segmentation: the region is placed by the user, or
   brain masks from another tool (e.g. a NIfTI per stack named `*mask*`) are used.

@@ -15,6 +15,11 @@ Cases
                  2 partly corrupted slices per stack. Truth and true motion known.
   real-fetal     6 real fetal HASTE stacks (1.5 T, 1.125 x 1.125 x 3 mm) with manual brain masks.
                  No truth: slice-to-volume consistency before/after motion correction.
+  cortex         (only when named; needs --adult-t1) grey-white matter and sulci: pseudo-T2 contrast
+                 (adult and infant) made from the real 3-D head scan, child protocol 0.6 x 0.6 x 3 mm
+                 without gap. Final regularisation weight at three noise levels, output voxel size,
+                 and slice motion within the series (between-series vs slice-to-volume correction).
+  cycles         (only when named) number of motion-correction cycles, fetal and adult phantoms.
 
 Stacks are simulated with a box-shaped slice profile and Gauss-Hermite in-plane sampling, not
 with the reconstruction's Gaussian model. Everything runs offline on the CPU.
@@ -241,6 +246,148 @@ def fetal_phantom(out, log):
     return results
 
 
+# ---------------------------------------------------------------- cortex (grey-white matter, sulci)
+def _largest(m):
+    lab, n = ndi.label(m)
+    if n == 0:
+        return m
+    return lab == (1 + int(np.argmax(ndi.sum(m, lab, range(1, n + 1)))))
+
+
+def pseudo_t2(t1_path, contrast="adult"):
+    """T2-like truth from a 3-D T1 head scan: CSF bright; adult: grey matter brighter than white
+    matter; infant (unmyelinated): white matter brighter than grey matter, lower contrast. Returns
+    the truth, its affine, the normalised T1 (for tissue labels), the brain region and its centre."""
+    v = read_nifti(t1_path)
+    t = (v.data / np.percentile(v.data, 99.5)).astype(np.float32)
+    head = _largest(ndi.binary_fill_holes(ndi.binary_closing(t > 0.12, iterations=3)))
+    brain = _largest(ndi.binary_opening((t > 0.45) & (t < 0.95), iterations=2))
+    brain_ext = ndi.binary_fill_holes(ndi.binary_closing(brain, iterations=4)) & head
+    knots = [0.0, 0.2, 0.45, 0.62, 0.80, 0.95, 1.3]
+    vals = [2.4, 2.4, 1.55, 1.15, 0.80, 0.80, 0.9] if contrast == "adult" else [2.4, 2.4, 1.6, 1.0, 1.2, 1.2, 1.2]
+    outside = np.interp(t, [0, 0.15, 0.5, 0.8, 1.0, 1.3], [0, 0.15, 0.6, 1.2, 1.6, 1.6])
+    T2 = np.where(brain_ext, np.interp(t, knots, vals), np.where(head, outside, 0)).astype(np.float32)
+    ctr = apply(v.affine, np.argwhere(brain)[::50]).mean(axis=0)
+    return T2, v.affine, t, brain_ext, ctr
+
+
+def cortex_metrics(vol, g, cov, truth, taff, t, brain_ext, D=None):
+    """Brain PSNR / SSIM, and on tissue labels from the T1: grey-white matter contrast recovery,
+    sulcal CSF - grey matter contrast recovery, and the correlation of band-pass detail (0.5-2 mm)
+    in the cortical ribbon. Only voxels with enough data are evaluated. D: rigid map from the
+    reconstruction frame to the truth frame (when the reference stack itself moved)."""
+    tr = on_grid(truth, taff, g, D)
+    tg = on_grid(t, taff, g, D)
+    pos = cov[cov > 0]
+    be = (on_grid(brain_ext.astype(np.float32), taff, g, D) > 0.5) & (cov >= 0.15 * float(np.percentile(pos, 75)))
+    gm = be & (tg > 0.55) & (tg < 0.68)
+    wm = ndi.binary_erosion(be & (tg > 0.76) & (tg < 0.9), iterations=1)
+    csf = be & (tg < 0.35)
+    vent = ndi.binary_erosion(csf, iterations=2)
+    sulcal = csf & ndi.binary_dilation(gm, iterations=2) & ~ndi.binary_dilation(vent, iterations=2)
+    cortex = ndi.binary_dilation(gm, iterations=2) & be
+    v = vol * metrics.fit_scale(vol, tr, be)
+    out = metrics.compare(vol, tr, be)
+    out.pop("ncc", None)
+
+    def recovery(a, b):
+        return round(float((np.median(v[a]) - np.median(v[b])) / (np.median(tr[a]) - np.median(tr[b]))), 3)
+    out["gm_wm_contrast"] = recovery(gm, wm)
+    out["sulcal_csf_contrast"] = recovery(sulcal, gm)
+    h = g.spacing
+    dv = ndi.gaussian_filter(v, 0.5 / h) - ndi.gaussian_filter(v, 2.0 / h)
+    dt = ndi.gaussian_filter(tr, 0.5 / h) - ndi.gaussian_filter(tr, 2.0 / h)
+    out["cortex_detail_corr"] = round(float(np.corrcoef(dv[cortex], dt[cortex])[0, 1]), 3)
+    return out
+
+
+def cortex_case(t1_path, out, log):
+    from sliceweave import operators as ops
+    from sliceweave.recon import FINAL_ALPHA_FACTOR, _support
+    res_all = {"protocol": "AX, COR, SAG; 0.6 x 0.6 mm in-plane, 3 mm slices, no gap; bias 15 %; motion between "
+                           "series; output 1.0 mm unless stated", "final_alpha_factor": FINAL_ALPHA_FACTOR}
+    sim_kw = dict(bias=0.15, cover_mm=126, fov_mm=200, pixel_mm=0.6, thick_mm=3.0, gap_mm=0.0)
+
+    class Keep(Reconstruction):
+        def srr(self, op, x0=None, iters=20, final=False):
+            if final:
+                self.x_before_final = None if x0 is None else x0.copy()
+            return super().srr(op, x0=x0, iters=iters, final=final)
+
+    # 1. weight of the final volume (the registration volumes keep the noise-calibrated weight)
+    calib = []
+    for contrast, noise in (("adult", 0.015), ("adult", 0.03), ("adult", 0.06), ("infant", 0.03)):
+        truth, taff, t, be, ctr = pseudo_t2(t1_path, contrast)
+        stacks, _ = simulate.simulate_stacks(truth, taff, "adult", noise=noise, center=ctr, **sim_kw)
+        rec = Keep(stacks, default_roi(stacks, 0, "adult"), Params.preset("adult"), log=lambda m: None)
+        res = rec.run()
+        op = rec.build(rec.masks())
+        ys, ws = rec.data_and_weights(op)
+        f = rec.norm[rec.ref]
+        row = {"contrast": contrast, "noise": noise, "noise_estimated": round(rec.rel_noise, 4),
+               "alpha_noise_calibrated": round(rec.alpha_motion, 3), "by_factor": {}}
+        for fa in (1.0, 0.5, 0.35, 0.25, 0.15):
+            x, st = ops.solve(op, ys, ws, x0=rec.x_before_final, alpha=rec.alpha_motion * fa,
+                              iters=rec.p.final_iterations, huber=True)
+            row["by_factor"][str(fa)] = cortex_metrics(x * f * _support(st["coverage"]), rec.grid, st["coverage"],
+                                                       truth, taff, t, be)
+        calib.append(row)
+        log(f"cortex weight: {json.dumps(row)}")
+    res_all["final_weight"] = calib
+    # 2. output voxel size (defaults), adult contrast, noise 0.03
+    truth, taff, t, be, ctr = pseudo_t2(t1_path, "adult")
+    stacks, _ = simulate.simulate_stacks(truth, taff, "adult", noise=0.03, center=ctr, **sim_kw)
+    sizes, vols = [], {}
+    for r_mm in (1.5, 1.0, 0.8):
+        t0 = time.time()
+        res = Reconstruction(stacks, default_roi(stacks, 0, "adult"), Params.preset("adult", resolution=r_mm),
+                             log=lambda m: None).run()
+        row = {"voxel_mm": r_mm, **cortex_metrics(res.volume, res.grid, res.coverage, truth, taff, t, be),
+               "seconds": round(time.time() - t0)}
+        sizes.append(row)
+        vols[r_mm] = res
+        log(f"cortex voxel: {json.dumps(row)}")
+    res_all["voxel_size"] = sizes
+    # 3. slice motion within the series (a child moving during each series)
+    stacks_m, Ts_m = simulate.simulate_stacks(truth, taff, "adult", noise=0.03, center=ctr, motion=True,
+                                              motion_deg=3.0, motion_mm=2.0, corrupt=0, **sim_kw)
+    mot, Ds = [], {}
+    for label, kw in (("between series, 1 cycle", {}), ("slice-to-volume, 6 cycles", {"motion": "slice", "cycles": 6})):
+        t0 = time.time()
+        rec = Reconstruction(stacks_m, default_roi(stacks_m, 0, "adult"), Params.preset("adult", **kw),
+                             log=lambda m: None)
+        rec.prepare()
+        e0 = _pose_error(rec, Ts_m)
+        res = rec.run()
+        # the reference stack moved too: compare after the best rigid alignment to the truth
+        W = res.grid.vox_to_world(np.indices(res.grid.shape).reshape(3, -1).T)
+        inb = on_grid(be.astype(np.float32), taff, res.grid).reshape(-1) > 0.5
+        D = register(Sampler(truth, Grid(truth.shape, taff)), W[inb][::4], res.volume.reshape(-1)[inb][::4],
+                     center=ctr, iters=40, huber_k=None).D
+        row = {"correction": label, **cortex_metrics(res.volume, res.grid, res.coverage, truth, taff, t, be, D),
+               "slice_pose_error_mm_before": round(e0, 2), "slice_pose_error_mm_after": round(_pose_error(rec, Ts_m), 2),
+               "slices_used": int(sum(s["slices_used"] for s in res.report["stacks"])),
+               "slices": int(sum(s["slices"] for s in res.report["stacks"])), "seconds": round(time.time() - t0)}
+        mot.append(row)
+        vols[label], Ds[label] = res, D
+        log(f"cortex motion: {json.dumps(row)}")
+    res_all["slice_motion"] = mot
+    # figure: truth, 1.5 mm, 1.0 mm (default) on the 1.0 mm grid; moving child without / with slice correction
+    g = vols[1.0].grid
+    def moved(label):  # into the truth frame: x_truth = D x_rec, so sample the result at D^-1 x
+        r = vols[label]
+        return on_grid(r.volume, r.grid.affine, g, np.linalg.inv(Ds[label]))
+    rows = [on_grid(truth, taff, g), on_grid(vols[1.5].volume, vols[1.5].grid.affine, g), vols[1.0].volume,
+            moved("between series, 1 cycle"), moved("slice-to-volume, 6 cycles")]
+    rows = [r * (metrics.fit_scale(r, rows[0], rows[0] > 0.05) if i else 1.0) for i, r in enumerate(rows)]
+    nx, ny, nz = g.shape
+    figure(out / "cortex-t2.png", rows, ["truth (pseudo-T2 from a 3-D scan)", "SRR 1.5 mm voxels",
+                                          "SRR 1.0 mm (default)", "child moving: between-series correction",
+                                          "child moving: slice-to-volume, 6 cycles"],
+           center=[int(nx * 0.38), ny // 2, int(nz * 0.62)], window=1.8)
+    return res_all
+
+
 def cycles_sweep(out, log):
     """Effect of the number of motion-correction cycles (fetal phantom, slice-to-volume; adult phantom,
     between series). Same stacks for every setting."""
@@ -374,6 +521,8 @@ def main():
         allres["phantom-fetal"] = fetal_phantom(out, log)
     if a.fetal_dir and want("real-fetal"):
         allres["real-fetal"] = real_fetal(Path(a.fetal_dir), out, log)
+    if a.adult_t1 and only is not None and "cortex" in only:  # not part of the default run (about 45 min)
+        allres["cortex"] = cortex_case(a.adult_t1, out, log)
     if only is not None and "cycles" in only:  # not part of the default run (about 25 min)
         allres["cycles"] = cycles_sweep(out, log)
     resf.write_text(json.dumps(allres, indent=1), encoding="utf-8")

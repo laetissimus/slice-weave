@@ -64,7 +64,8 @@ demo, then Reconstruct.
    cycles (rounds of motion correction, see [Cycles](#cycles)), regularisation (automatic from the noise, or a fixed alpha), outlier rejection,
    intensity correction.
 6. **Reconstruct**, then review: Result vs any input stack (Compare, key B), slice check (which
-   slices were used, how far each moved), report. Optional reorientation (rotate the volume about
+   slices were used, how far each moved), report. Window: *Brain* (default) or *Full range*;
+   right-drag adjusts width and level. Optional reorientation (rotate the volume about
    its centre, e.g. into fetal standard planes).
 7. **Export**: NIfTI (SRR, average), DICOM de-identified, DICOM attached to the original study
    (choose one original image file; PACS files the series with that exam), research bundle
@@ -112,6 +113,44 @@ How to choose:
   slices and drops half of them.
 * More cycles do not repair a slice that is corrupted within itself (motion during its own echo
   train, signal loss); the outlier check excludes those.
+
+## Grey-white matter and sulci (T2 / HASTE)
+
+The cortical ribbon, the grey-white boundary and the sulci are 1-3 mm structures. With 3-5 mm
+slices they appear only where the three orientations are combined accurately and not smoothed
+away. What decides how they look, by size of effect (numbers: pseudo-T2 made from a real 0.88 mm
+head scan, child protocol 0.6 x 0.6 x 3 mm; [docs/VALIDATION.md](docs/VALIDATION.md#grey-white-matter-and-sulci-pseudo-t2-from-the-real-head-scan)):
+
+1. **Motion within a series.** A child who moves during a series smears and doubles the cortex in
+   every plane, whatever the other settings. Signs: excluded slices (red) in the slice check,
+   ragged edges, double contours. Choose Motion correction: *Slice-to-volume* (cycles go to 6).
+   On a simulated moving child: slice position error 2.6 -> 0.2 mm, sulcal CSF contrast
+   0.49 -> 0.87, SSIM 0.59 -> 0.91. If the reference stack lost many slices, choose the stack with
+   the fewest as reference (the slice check suggests it): the others are registered to it.
+2. **Output voxel.** Use 1.0 mm (default). 1.5 mm voxels average the cortex with CSF and white
+   matter (cortex detail 0.91 vs 0.97 at 1.0 mm); a warning appears when the voxel is much coarser
+   than the acquired in-plane resolution. 0.8 mm gave no more than 1.0 mm (a little more detail,
+   more noise, 40 % more time); 0.5 mm has 8 x the voxels of 1.0 mm, takes correspondingly
+   longer, and cannot add detail the 3 mm slices do not hold.
+3. **Regularisation.** The final adult / paediatric T2 volume uses a quarter of the
+   noise-calibrated weight (the volumes used for motion correction keep all of it). Against the
+   full weight: sulcal CSF contrast 0.90 -> 1.01, cortex detail 0.955 -> 0.973, PSNR
+   26.7 -> 27.7 dB, SSIM 0.93 -> 0.96 at 3 % noise, and better at 1.5 % and 6 % too; infant
+   contrast (white matter brighter than grey) grey-white contrast 0.50 -> 0.64. For a sharper,
+   noisier image set a manual alpha below the automatic one (shown in the report; a manual alpha
+   also applies to the motion-correction volumes); Tikhonov is smoother.
+4. **Display window.** Images open in a *Brain* window: centred on the brain tissue, so grey and
+   white matter spread over the grey levels and CSF is near white. *Window: Full range* shows the
+   whole intensity range; right-drag adjusts (left-right: width, up-down: level). DICOM exports
+   carry the same brain window first and the full range second.
+5. **Matching series.** Series with different TR / TE have different grey-white contrast; the
+   reconstruction averages them. The plan warns when TE, TR or TI differ.
+
+Limits: detail finer than the acquired in-plane resolution and the slice thickness allows cannot
+be created; the low grey-white contrast of the unmyelinated infant brain is only partly
+recovered from 3 mm slices (64 % on the simulation).
+
+![Cortex: truth, 1.5 mm, 1.0 mm, moving child without and with slice-to-volume correction](docs/validation/cortex-t2.png)
 
 ## 2-D FLAIR
 
@@ -167,8 +206,9 @@ Summary (details, figures and how to reproduce: [docs/VALIDATION.md](docs/VALIDA
 
 | Case | Result |
 |---|---|
-| Adult phantom, 3 stacks 0.9 x 0.9 x 4 mm, motion between series | SRR PSNR 22.5 dB / SSIM 0.81, vs average of stacks 20.3 / 0.67 and one reformatted stack 20.0 / 0.63; series motion recovered to 0.03 deg / 0.03 mm |
+| Adult phantom, 3 stacks 0.9 x 0.9 x 4 mm, motion between series | SRR PSNR 23.2 dB / SSIM 0.82, vs average of stacks 20.3 / 0.67 and one reformatted stack 20.0 / 0.63; series motion recovered to 0.03 deg / 0.03 mm |
 | Same protocol simulated from a real 0.88 mm head scan | SRR 25.8 dB / 0.90, vs average 23.0 / 0.75 and one stack 22.3 / 0.72 |
+| Pseudo-T2 from the real head scan, child protocol 0.6 x 0.6 x 3 mm | sulcal CSF contrast 1.01 and cortex detail 0.97 at 1.0 mm (1.5 mm voxels: 0.92 / 0.91); child moving during each series: slice-to-volume correction 2.6 -> 0.2 mm, SSIM 0.59 -> 0.91 |
 | FLAIR phantom, 3 stacks 1.2 x 0.9 x 5 mm (zero-filled to 512), 12 lesions 2-8 mm | SRR 17.9 dB / 0.68 vs average 16.1 / 0.59 and one stack 15.7 / 0.51; contrast of 4-8 mm lesions fully recovered (one stack: 50-70 %), 2-3 mm lesions about 40 % (one stack: 16 %) |
 | Fetal phantom, 6 stacks 1.1 x 1.1 x 3 mm, slice-by-slice motion | slice pose error 4.0 -> 1.9 mm; SRR 22.9 dB / 0.75 vs 17.9 / 0.40 without motion correction (true-motion upper bound 25.5 / 0.79) |
 | Public fetal HASTE (6 stacks, 1.5 T) | median slice-to-volume NCC 0.69 -> 0.97, all 130 slices used, 2 min on 2 CPU cores |

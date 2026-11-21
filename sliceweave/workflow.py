@@ -84,6 +84,7 @@ def update_plan(store: CaseStore, cid: str, changes: dict) -> dict:
             roi = ROI.from_dict(plan["roi"])
             roi.R = nearest_ras_axes(st.axes)
             plan["roi"] = roi.to_dict()
+    old = dict(plan["params"])
     for k, v in (changes.get("params") or {}).items():
         if k not in EDITABLE:
             raise StoreError(f"unknown setting {k}")
@@ -91,6 +92,7 @@ def update_plan(store: CaseStore, cid: str, changes: dict) -> dict:
         if k == "motion" and v == "slice" and plan.get("mode") == "flair":
             raise StoreError(FLAIR_SLICE_MSG)
         plan["params"][k] = v
+    _cycles_follow_motion(plan, old)
     if "roi" in changes and changes["roi"]:
         r = changes["roi"]
         roi = ROI.from_dict(plan["roi"])
@@ -102,10 +104,25 @@ def update_plan(store: CaseStore, cid: str, changes: dict) -> dict:
             roi.shape = "ellipsoid" if r["shape"] == "ellipsoid" else "box"
         plan["roi"] = roi.to_dict()
         plan["roi_source"] = "user"
-    plan["warnings"] = plan_warnings(case["stacks"], plan.get("mode", "adult"))
+    plan["warnings"] = plan_warnings(case["stacks"], plan.get("mode", "adult"), plan["params"].get("resolution"))
     case["plan"] = plan
     store.save(cid, case)
     return plan
+
+
+SLICE_CYCLES = 6   # slice-to-volume needs several coarse-to-fine cycles (docs/VALIDATION.md, number of cycles)
+
+
+def _cycles_follow_motion(plan: dict, old: dict):
+    """Switching to slice-to-volume raises an unchanged low cycle count to the slice default, and
+    switching back restores the mode's default (the user's own cycle count is kept)."""
+    p = plan["params"]
+    if p.get("motion") == old.get("motion") or p.get("cycles") != old.get("cycles"):
+        return
+    if p["motion"] == "slice" and int(p.get("cycles", 0)) < 4:
+        p["cycles"] = max(SLICE_CYCLES, Params.preset(plan.get("mode", "adult")).cycles)
+    elif old.get("motion") == "slice" and int(p.get("cycles", 0)) == SLICE_CYCLES:
+        p["cycles"] = Params.preset(plan.get("mode", "adult")).cycles
 
 
 def _select_for_mode(entries: list[dict], mode: str):
@@ -121,10 +138,15 @@ def _select_for_mode(entries: list[dict], mode: str):
             e["include"] = bool(e.get("haste_like"))
 
 
-def plan_warnings(entries: list[dict], mode: str) -> list[str]:
+def plan_warnings(entries: list[dict], mode: str, resolution: float | None = None) -> list[str]:
     """Things that make the stacks unsuitable to combine, shown before the reconstruction runs."""
     inc = [e for e in entries if e.get("include")]
     out = []
+    acq = [max(e["resolution_mm"]) for e in inc if e.get("resolution_mm")]
+    if resolution and acq and resolution > 1.0 and resolution > 1.5 * float(np.median(acq)):
+        span = f"{min(acq):.1f}" if f"{min(acq):.1f}" == f"{max(acq):.1f}" else f"{min(acq):.1f}-{max(acq):.1f}"
+        out.append(f"Output voxel {resolution:g} mm is much coarser than the acquired in-plane resolution "
+                   f"({span} mm): cortex and sulci are blurred. 1.0 mm or finer keeps the in-plane detail.")
     kinds = {e.get("sequence", "other") for e in inc}
     if "flair" in kinds and len(kinds) > 1:
         out.append("FLAIR and non-FLAIR series are both selected: one reconstruction must combine one contrast.")

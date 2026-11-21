@@ -86,6 +86,23 @@ def resample(vol: np.ndarray, src: Grid, dst: Grid, order: int = 1) -> np.ndarra
     return out
 
 
+def brain_window(pos: np.ndarray, full_hi: float) -> list[float]:
+    """Window on the brain tissue: centred on the most common foreground intensity (parenchyma), so
+    that grey and white matter spread over the grey levels and CSF / fat are near white."""
+    if pos.size < 1000 or full_hi <= 0:
+        return [0.0, float(full_hi)]
+    v = pos[pos > 0.12 * full_hi]
+    if v.size < 1000:
+        return [0.0, float(full_hi)]
+    if v.size > 2_000_000:
+        v = v[:: v.size // 2_000_000 + 1]
+    h, e = np.histogram(v, bins=200, range=(0.0, float(full_hi)))
+    h = np.convolve(h.astype(float), np.ones(7) / 7, mode="same")
+    peak = 0.5 * (e[int(np.argmax(h))] + e[int(np.argmax(h)) + 1])
+    lo, hi = 0.4 * peak, min(1.8 * peak, float(full_hi))
+    return [float(lo), float(max(hi, lo + 1e-6))]
+
+
 def quantize(vol: np.ndarray) -> tuple[bytes, dict]:
     """uint8 (x fastest, then y, then z) plus the offset/scale to recover values and a default window."""
     v = vol[np.isfinite(vol)]
@@ -95,7 +112,7 @@ def quantize(vol: np.ndarray) -> tuple[bytes, dict]:
     scale = (hi - lo) / 255.0 or 1.0
     q = np.clip(np.round((vol - lo) / scale), 0, 255).astype(np.uint8)
     w_hi = float(np.percentile(pos, 99.0)) if pos.size else hi
-    meta = {"offset": lo, "scale": scale, "window": [lo, w_hi]}
+    meta = {"offset": lo, "scale": scale, "window": [lo, w_hi], "window_brain": brain_window(pos, w_hi)}
     return gzip.compress(np.ascontiguousarray(q.transpose(2, 1, 0)).tobytes(), 4), meta
 
 

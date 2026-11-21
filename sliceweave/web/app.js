@@ -390,6 +390,22 @@
     const box = $("#qc"); box.textContent = "";
     const r = S.report;
     if (!r) { box.append(el("p", { class: "muted small", text: "After reconstruction: per stack, how well each slice matches the volume (NCC; red = excluded) and how far it moved." })); return; }
+    const prm = r.params || {};
+    // many excluded slices: the patient probably moved during a series; a moving reference stack
+    // also distorts the volume the other stacks are registered to
+    const nEx = s => s.slices - s.slices_used, frac = s => nEx(s) / Math.max(s.slices, 1);
+    const bad = r.stacks.filter(s => nEx(s) >= 3 && frac(s) > 0.1);
+    const ref = r.stacks.find(s => s.reference), best = r.stacks.slice().sort((a, b) => frac(a) - frac(b))[0];
+    const refTip = ref && best && !best.reference && bad.includes(ref) && frac(ref) - frac(best) > 0.1
+      ? ` ${ref.name} is the reference stack (the frame the others are registered to): choose ${best.name} (fewest excluded slices) as reference.` : "";
+    if (bad.length && prm.motion !== "slice") {
+      const which = bad.map(s => `${s.name}: ${nEx(s)} of ${s.slices}`).join("; ");
+      box.append(el("p", { class: "warn small", text: prm.mode === "flair"
+        ? `Slices that did not match the volume (${which}). Motion within a FLAIR series cannot be corrected: compare that series with the result and exclude it if it is degraded.${refTip}`
+        : `Slices that did not match the volume (${which}): the patient probably moved during the series. Choose Motion correction: Slice-to-volume (6 cycles) and reconstruct again.${refTip}` }));
+    } else if (refTip) {
+      box.append(el("p", { class: "warn small", text: `${ref.name}: ${nEx(ref)} of ${ref.slices} slices excluded.${refTip} Reconstruct again.` }));
+    }
     for (const s of r.stacks) {
       box.append(el("div", { class: "qclabel" }, el("span", { text: s.name + (s.reference ? " (ref)" : "") }), el("span", { text: `${s.slices_used}/${s.slices} used` })));
       const cv = el("canvas", { class: "qcchart" }); box.append(cv);
@@ -473,11 +489,19 @@
       const r = await api("GET", `/api/cases/${S.cid}/layer?which=${S.which}&lid=${id}`);
       l.data = new Uint8Array(r.data);
       l.offset = parseFloat(r.headers.get("x-sw-offset") || "0"); l.scale = parseFloat(r.headers.get("x-sw-scale") || "1");
-      const w = (r.headers.get("x-sw-window") || "0,1").split(",").map(Number);
-      l.win = [Math.max(0, (w[0] - l.offset) / l.scale), Math.min(255, Math.max((w[1] - l.offset) / l.scale, 2))];
+      const toWin = w => [Math.max(0, (w[0] - l.offset) / l.scale), Math.min(255, Math.max((w[1] - l.offset) / l.scale, 2))];
+      const wf = (r.headers.get("x-sw-window") || "0,1").split(",").map(Number);
+      const wb = (r.headers.get("x-sw-window-brain") || "").split(",").map(Number);
+      l.winFull = toWin(wf); l.winBrain = wb.length === 2 && wb.every(Number.isFinite) ? toWin(wb) : l.winFull;
+      l.win = (S.winMode === "full" ? l.winFull : l.winBrain).slice();
     })();
     try { await l.loading; } catch (e) { toast(e.message, true); } finally { l.loading = null; }
   }
+  $("#winSel").addEventListener("change", () => {
+    S.winMode = $("#winSel").value;
+    S.layers.forEach(l => { if (l.winFull) l.win = (S.winMode === "full" ? l.winFull : l.winBrain).slice(); });
+    draw();
+  });
   function fillSelects() {
     const b = $("#baseSel"), c = $("#cmpSel"); b.textContent = ""; c.textContent = "";
     c.append(el("option", { value: "", text: "None" }));

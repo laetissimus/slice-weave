@@ -390,7 +390,8 @@ def create_app(settings: Settings, token: str, port: int) -> Starlette:
         data, meta = await run_in_threadpool(_layer_bytes, cid, which, lid)
         return Response(data, media_type="application/octet-stream",
                         headers={"x-sw-offset": str(meta["offset"]), "x-sw-scale": str(meta["scale"]),
-                                 "x-sw-window": f"{meta['window'][0]},{meta['window'][1]}"})
+                                 "x-sw-window": f"{meta['window'][0]},{meta['window'][1]}",
+                                 "x-sw-window-brain": ",".join(str(v) for v in meta.get("window_brain", meta["window"]))})
 
     async def run_case(req):
         cid = cid_of(req)

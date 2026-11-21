@@ -186,24 +186,25 @@ def initial_slice_scale(data: np.ndarray, fg: np.ndarray) -> np.ndarray:
     return np.clip(med / np.maximum(ref, 1e-6), 0.3, 3.0)
 
 
-# FLAIR is read for small focal hyperintensities. On the FLAIR phantom the noise-calibrated weight
-# halved the contrast of 2-3 mm lesions; about a third of it doubled that contrast for a small loss
-# of SSIM (docs/VALIDATION.md, "2-D FLAIR").
-FLAIR_ALPHA_FACTOR = 0.35
+# Weight of the final volume relative to the noise-calibrated weight (which the registration volumes
+# keep). The noise calibration was done on a formula phantom with smooth anatomy. FLAIR: on the
+# FLAIR phantom about a third of it kept twice the contrast of 2-3 mm lesions. Adult / paediatric
+# T2: on real anatomy (pseudo-T2 from a 3-D scan) a quarter of it kept the sulci and the cortical
+# ribbon best at every noise level tested (docs/VALIDATION.md, "Grey-white matter and sulci").
+FINAL_ALPHA_FACTOR = {"adult": 0.25, "flair": 0.35, "fetal": 1.0}
+FLAIR_ALPHA_FACTOR = FINAL_ALPHA_FACTOR["flair"]
 
 
-def auto_alpha(rel_noise: float, regularizer: str, mode: str = "adult") -> float:
+def auto_alpha(rel_noise: float, regularizer: str, mode: str | None = None) -> float:
     """Regularisation weight from the relative noise level (noise sigma / median tissue signal).
     Calibrated on simulated stacks with known ground truth (docs/VALIDATION.md, "Regularisation"):
-    the weight that maximised PSNR and SSIM grew about linearly with the noise level. The FLAIR
-    preset uses a weaker weight that keeps the contrast of small lesions."""
+    the weight that maximised PSNR and SSIM grew about linearly with the noise level. With a mode,
+    the weight of that mode's final volume (FINAL_ALPHA_FACTOR); without, the registration weight."""
     if regularizer == "huber":
         a = 0.1 + 65.0 * rel_noise
     else:
         a = 0.1 + 40.0 * rel_noise
-    if mode == "flair":
-        a *= FLAIR_ALPHA_FACTOR
-    return float(a)
+    return float(a * FINAL_ALPHA_FACTOR.get(mode, 1.0))
 
 
 def blur_volume(x: np.ndarray, grid: Grid, cov_world: np.ndarray, extra_sigma_mm: float = 0.0) -> np.ndarray:
@@ -317,6 +318,7 @@ class Reconstruction:
                      f"{st.thickness:.2f} mm, noise {self.noise[-1]:.3f} of median signal")
             self._progress("prepare", (n + 1) / len(self.use), st.name)
         rel = float(np.median(self.noise))
+        self.rel_noise = rel
         self.alpha = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer, p.mode)
         # volumes used as registration targets keep the noise-calibrated weight (a noisier target
         # makes the motion estimates worse); only the final volume uses the mode's weight

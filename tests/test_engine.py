@@ -98,8 +98,11 @@ def test_packets_cover_every_slice_once():
 
 def test_auto_alpha_grows_with_noise():
     assert auto_alpha(0.01, "huber") < auto_alpha(0.05, "huber") < auto_alpha(0.1, "huber")
-    # FLAIR keeps small lesions: weaker weight at the same noise
-    assert auto_alpha(0.05, "huber", "flair") < 0.5 * auto_alpha(0.05, "huber", "adult")
+    # final volumes of FLAIR (small lesions) and adult / paediatric T2 (cortex, sulci): weaker weight
+    # than the registration volumes; fetal unchanged
+    for mode in ("flair", "adult"):
+        assert auto_alpha(0.05, "huber", mode) < 0.5 * auto_alpha(0.05, "huber")
+    assert auto_alpha(0.05, "huber", "fetal") == auto_alpha(0.05, "huber")
 
 
 @pytest.mark.parametrize("motion,cycles,outliers,bias,expect_reg,expect_weights", [
