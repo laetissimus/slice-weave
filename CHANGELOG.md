@@ -21,6 +21,8 @@
 * CLI: `--mode flair`; `recon` now keeps only the series of the chosen kind when a whole study is
   given; `simulate --kind flair`. Viewer: FLAIR demo.
 * Windows build also runs on pull requests.
+* Published releases (or a manual run with `release_tag`) get the tested executables attached;
+  the build adds THIRD-PARTY-NOTICES.txt with the licences of the bundled Python and libraries.
 
 ## 1.0.0 (2026-11)
 

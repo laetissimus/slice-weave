@@ -8,6 +8,13 @@ on:
     branches: [main]
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Attach the tested executables to this release (tag of an existing or draft release); empty = build only"
+        required: false
+        default: ""
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -72,6 +79,7 @@ jobs:
             dist/SliceWeave.exe
             dist/SliceWeave-portable.zip
             dist/README-WINDOWS.txt
+            dist/THIRD-PARTY-NOTICES.txt
             dist/SHA256SUMS.txt
             dist/build-report.json
             smoke-report-onefile.json
@@ -79,3 +87,33 @@ jobs:
             nettrace-onefile.jsonl
             nettrace-portable.jsonl
           retention-days: 90
+
+  attach-to-release:
+    # only after the build, the tests and the firewall-blocked executable tests above have passed
+    needs: build
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: SliceWeave-windows
+          path: artifact
+
+      - name: Check the checksums of the tested files
+        working-directory: artifact/dist
+        run: sha256sum -c SHA256SUMS.txt
+
+      - name: Attach the executables to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          gh release upload "$TAG" --repo "${{ github.repository }}" --clobber \
+            artifact/dist/SliceWeave.exe \
+            artifact/dist/SliceWeave-portable.zip \
+            artifact/dist/README-WINDOWS.txt \
+            artifact/dist/THIRD-PARTY-NOTICES.txt \
+            artifact/dist/SHA256SUMS.txt
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[] | [.name, .size] | @tsv'

@@ -27,10 +27,13 @@ adult/paediatric and fetal presets, and the privacy model of the brain tumour wo
 
 ## Quick start
 
-**Windows (no installation):** download `SliceWeave.exe` from the latest successful run of the
-`windows-build` workflow (Actions tab -> run -> artifact `SliceWeave-windows`), double-click it,
-and open the login link it prints (the browser usually opens by itself). Data are kept in
-`%USERPROFILE%\SliceWeave-Data`.
+**Windows 10/11 (no installation):** download `SliceWeave.exe` from the
+[Releases](https://github.com/laetissimus/slice-weave/releases) page, double-click it, and open
+the login link it prints (the browser usually opens by itself). Data are kept in
+`%USERPROFILE%\SliceWeave-Data`. `SliceWeave-portable.zip` is the same program as a folder that
+starts faster (unzip, run `SliceWeave.exe` inside). Not code-signed: SmartScreen may ask for
+"More info" -> "Run anyway". Builds of every push are also under Actions -> `windows-build` ->
+artifact `SliceWeave-windows`.
 
 **From source (Windows, macOS or Linux, Python 3.10+):**
 
@@ -153,8 +156,12 @@ coded case IDs, one-time login token, CSRF and Host checks. See [SECURITY.md](SE
 ## Building the executable
 
 `.github/workflows/windows-build.yml` builds `SliceWeave.exe` (one file) and a portable folder
-on every push to `main`, runs the tests, a network audit and the self-test, then runs the
-executables with outbound traffic blocked by Windows Firewall. Locally:
+on every push to `main` and every pull request, runs the tests, a network audit and the
+self-test, then runs the executables with outbound traffic blocked by Windows Firewall. When a
+GitHub release is published (or the workflow is run by hand with `release_tag`), the tested
+files are attached to that release: `SliceWeave.exe`, `SliceWeave-portable.zip`,
+`README-WINDOWS.txt`, `THIRD-PARTY-NOTICES.txt` (licences of the bundled Python and libraries)
+and `SHA256SUMS.txt`. Locally:
 
 ```
 pip install -r requirements.txt "pyinstaller>=6.10,<7" pydicom python-gdcm
