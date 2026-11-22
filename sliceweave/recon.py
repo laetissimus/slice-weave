@@ -32,9 +32,16 @@ STEPS = [("prepare", "Prepare stacks"), ("stacks", "Register stacks"), ("reconst
 
 
 # ---------------------------------------------------------------------- settings
+MODES = ("adult", "fetal", "flair")
+MODE_LABELS = {"adult": "T2 single-shot", "fetal": "fetal T2 single-shot", "flair": "FLAIR"}
+FLAIR_SLICE_MSG = ("2-D FLAIR is a multi-shot acquisition: each slice is built from echoes collected over the "
+                   "whole series, so it has no single position to correct. Use motion correction 'between series' "
+                   "(or none); exclude a series that is degraded by motion.")
+
+
 @dataclass
 class Params:
-    mode: str = "adult"              # adult | fetal
+    mode: str = "adult"              # adult (single-shot T2) | fetal | flair (2-D multi-shot FLAIR, adult/paediatric)
     resolution: float = 1.0          # output voxel size (mm)
     reference: int = 0               # index into the stack list
     motion: str = "stack"            # none | stack | slice
@@ -57,6 +64,10 @@ class Params:
         if mode == "fetal":
             p = cls(mode="fetal", resolution=0.8, motion="slice", cycles=6, ncc_threshold=0.5,
                     cycle_iterations=10, final_iterations=30)
+        elif mode == "flair":
+            # multi-shot: a slice is not a snapshot, so only motion between series is corrected
+            p = cls(mode="flair", resolution=1.0, motion="stack", cycles=1, ncc_threshold=0.6,
+                    temporal_smoothing=False)
         else:
             p = cls(mode="adult", resolution=1.0, motion="stack", cycles=1, ncc_threshold=0.6)
         for k, v in kw.items():
@@ -136,8 +147,15 @@ def grid_for(roi: ROI, params: Params, stacks: list[Stack] | None = None) -> Gri
 
 
 # ---------------------------------------------------------------------- helpers
-def noise_sigma(data: np.ndarray, mask: np.ndarray) -> float:
-    """Immerkaer-type estimate: median absolute 2-D Laplacian of the pixels in the mask."""
+def noise_sigma(data: np.ndarray, mask: np.ndarray, step=(1.0, 1.0)) -> float:
+    """Immerkaer-type estimate: median absolute 2-D Laplacian of the pixels in the mask.
+    ``step``: acquired resolution / pixel size. Interpolated images (e.g. a 256 matrix shown at
+    512) have correlated noise that the Laplacian under-reads, so they are first sampled at
+    about the acquired spacing."""
+    if max(step) > 1.05:
+        ii = np.unique(np.round(np.arange(0, data.shape[0] - 0.5, max(step[0], 1.0))).astype(int))
+        jj = np.unique(np.round(np.arange(0, data.shape[1] - 0.5, max(step[1], 1.0))).astype(int))
+        data, mask = data[ii][:, jj], mask[ii][:, jj]
     k = np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], np.float32)
     vals = []
     for s in range(data.shape[2]):
@@ -168,13 +186,25 @@ def initial_slice_scale(data: np.ndarray, fg: np.ndarray) -> np.ndarray:
     return np.clip(med / np.maximum(ref, 1e-6), 0.3, 3.0)
 
 
-def auto_alpha(rel_noise: float, regularizer: str) -> float:
+# Weight of the final volume relative to the noise-calibrated weight (which the registration volumes
+# keep). The noise calibration was done on a formula phantom with smooth anatomy. FLAIR: on the
+# FLAIR phantom about a third of it kept twice the contrast of 2-3 mm lesions. Adult / paediatric
+# T2: on real anatomy (pseudo-T2 from a 3-D scan) a quarter of it kept the sulci and the cortical
+# ribbon best at every noise level tested (docs/VALIDATION.md, "Grey-white matter and sulci").
+FINAL_ALPHA_FACTOR = {"adult": 0.25, "flair": 0.35, "fetal": 1.0}
+FLAIR_ALPHA_FACTOR = FINAL_ALPHA_FACTOR["flair"]
+
+
+def auto_alpha(rel_noise: float, regularizer: str, mode: str | None = None) -> float:
     """Regularisation weight from the relative noise level (noise sigma / median tissue signal).
     Calibrated on simulated stacks with known ground truth (docs/VALIDATION.md, "Regularisation"):
-    the weight that maximised PSNR and SSIM grew about linearly with the noise level."""
+    the weight that maximised PSNR and SSIM grew about linearly with the noise level. With a mode,
+    the weight of that mode's final volume (FINAL_ALPHA_FACTOR); without, the registration weight."""
     if regularizer == "huber":
-        return float(0.1 + 65.0 * rel_noise)
-    return float(0.1 + 40.0 * rel_noise)
+        a = 0.1 + 65.0 * rel_noise
+    else:
+        a = 0.1 + 40.0 * rel_noise
+    return float(a * FINAL_ALPHA_FACTOR.get(mode, 1.0))
 
 
 def blur_volume(x: np.ndarray, grid: Grid, cov_world: np.ndarray, extra_sigma_mm: float = 0.0) -> np.ndarray:
@@ -189,7 +219,7 @@ def blur_volume(x: np.ndarray, grid: Grid, cov_world: np.ndarray, extra_sigma_mm
 
 
 def psf_cov(st: Stack, Rmot: np.ndarray, psf_through: float = 1.0) -> np.ndarray:
-    dx, dy = st.pixel
+    dx, dy = st.resolution
     Q = Rmot @ st.axes
     sx, sy = 1.2 * dx / ops.FWHM, 1.2 * dy / ops.FWHM
     sz = psf_through * st.thickness / ops.FWHM
@@ -216,6 +246,8 @@ class Reconstruction:
         self.use = [i for i in range(len(stacks)) if include is None or include[i]]
         if params.reference not in self.use:
             raise ValueError("the reference stack must be included")
+        if params.mode == "flair" and params.motion == "slice":
+            raise ValueError(FLAIR_SLICE_MSG)
         self.roi = roi
         self.p = params
         self._log = log or (lambda m: None)
@@ -251,6 +283,7 @@ class Reconstruction:
             roi_k = ROI(self.roi.center + off, self.roi.half, self.roi.R, self.roi.shape)
             st = st0.crop_to(lambda pts: roi_k.inside(pts, margin=margin), margin_px=2)
             b = max(1, int(h / min(st.pixel) + 0.1))
+            st_full, raw_full = st, st.data   # unbinned pixels (raw values) for the noise estimate
             st = st.binned(b)
             if p.mode == "fetal":
                 fg = st.mask.copy() if st.mask is not None else np.ones(st.shape, bool)
@@ -264,7 +297,12 @@ class Reconstruction:
             self.stacks.append(st)
             self.norm.append(f)
             self.fg.append(fg)
-            self.noise.append(noise_sigma(st.data, fg))
+            # noise on the unbinned pixels, sampled at about the acquired resolution
+            fg_full = np.zeros(st_full.shape, bool)
+            up = np.repeat(np.repeat(fg, b, axis=0), b, axis=1)
+            fg_full[:up.shape[0], :up.shape[1]] = up
+            step = (st_full.resolution[0] / st_full.pixel[0], st_full.resolution[1] / st_full.pixel[1])
+            self.noise.append(noise_sigma(raw_full / f, fg_full, step))
             T0 = rigid(t=-off) if np.any(off) else np.eye(4)
             self.T.append(np.repeat(T0[None], st.nz, axis=0))
             sc0 = initial_slice_scale(st.data, fg)
@@ -274,13 +312,20 @@ class Reconstruction:
             # slices much darker or brighter than their neighbours start excluded (re-checked later)
             self.inc.append((sc0 > 0.6) & (sc0 < 1.6))
             self.log(f"stack {st.name}: {st.shape[0]}x{st.shape[1]}x{st.nz} after crop"
-                     + (f", binned {b}x{b}" if b > 1 else "") + f", pixel {st.pixel[0]:.2f} mm, thickness "
+                     + (f", binned {b}x{b}" if b > 1 else "") + f", pixel {st.pixel[0]:.2f} mm"
+                     + (f" (acquired {st.resolution[0]:.2f} x {st.resolution[1]:.2f} mm)"
+                        if max(st.resolution) > 1.05 * max(st.pixel) else "") + ", thickness "
                      f"{st.thickness:.2f} mm, noise {self.noise[-1]:.3f} of median signal")
             self._progress("prepare", (n + 1) / len(self.use), st.name)
         rel = float(np.median(self.noise))
-        self.alpha = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer)
+        self.rel_noise = rel
+        self.alpha = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer, p.mode)
+        # volumes used as registration targets keep the noise-calibrated weight (a noisier target
+        # makes the motion estimates worse); only the final volume uses the mode's weight
+        self.alpha_motion = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer)
         self.log(f"relative noise {rel:.3f}; regularisation {p.regularizer}, alpha {self.alpha:.3g}"
-                 + (" (automatic)" if p.alpha is None else ""))
+                 + (" (automatic" + (f"; {self.alpha_motion:.3g} during motion correction"
+                                     if self.alpha_motion != self.alpha else "") + ")" if p.alpha is None else ""))
 
     # ---------------------------------------------------------------- masks
     def masks(self) -> list[np.ndarray]:
@@ -313,9 +358,10 @@ class Reconstruction:
             ws.append((self.pixw[k][i, j, s] * f * f).astype(np.float32))
         return ys, ws
 
-    def srr(self, op, x0=None, iters=20):
+    def srr(self, op, x0=None, iters=20, final=False):
         ys, ws = self.data_and_weights(op)
-        x, st = ops.solve(op, ys, ws, x0=x0, alpha=self.alpha, iters=iters, huber=self.p.regularizer == "huber",
+        a = self.alpha if final else self.alpha_motion
+        x, st = ops.solve(op, ys, ws, x0=x0, alpha=a, iters=iters, huber=self.p.regularizer == "huber",
                           log=self.log)
         return x, st
 
@@ -552,7 +598,7 @@ class Reconstruction:
             nccs = np.array([v[1] for v in slice_stats.values()])
             med = float(np.median(nccs)) if nccs.size else 1.0
             mad = float(np.median(np.abs(nccs - med))) * 1.4826 if nccs.size else 0.0
-            if self.p.mode == "adult":  # only clear outliers: whole-brain slices of a still head correlate well
+            if self.p.mode != "fetal":  # only clear outliers: whole-brain slices of a still head correlate well
                 thr = min(thr, med - 4.0 * mad)
             for (k, s), v in slice_stats.items():
                 bad = v[1] < thr or not (0.4 <= self.scale[k][s] <= 2.5)
@@ -585,7 +631,7 @@ class Reconstruction:
                 only_ref = [np.zeros(st.nz, bool) if k != self.ref else self.inc[k] for k, st in enumerate(self.stacks)]
                 op = self.build(masks, include=only_ref)
             ys, ws = self.data_and_weights(op)
-            x_ref, _ = ops.solve(op, ys, ws, alpha=max(self.alpha, 0.3), iters=8, huber=False)
+            x_ref, _ = ops.solve(op, ys, ws, alpha=max(self.alpha_motion, 0.3), iters=8, huber=False)
             levels = [4.0, 2.0, 1.0] if p.mode == "fetal" else [3.0, 1.5]
             self._progress("stacks", 0.3, "registering stacks")
             stack_reg = self.register_stacks(x_ref, levels)
@@ -600,13 +646,19 @@ class Reconstruction:
         # -- motion-correction cycles
         t = time.time()
         excluded = []
-        n_cycles = p.cycles if p.motion in ("stack", "slice") else (1 if p.outlier_rejection else 0)
+        # each cycle: motion correction against the current volume, then intensity correction and the
+        # outlier test, then SRR again. Without motion correction (or with 0 cycles) intensity
+        # correction and the outlier test still run once when they are switched on.
+        n_motion = max(int(p.cycles), 0) if p.motion in ("stack", "slice") else 0
+        n_cycles = max(n_motion, 1 if (p.outlier_rejection or p.bias_correction) else 0)
         slice_levels = {1: [2.0, 1.0], 2: [1.0, 0.5]}
         for c in range(n_cycles):
             self.check_cancel()
             self._progress("motion", c / max(n_cycles, 1), f"cycle {c + 1} of {n_cycles}")
-            self.log(f"cycle {c + 1}/{n_cycles}")
-            if p.motion == "slice":
+            self.log(f"cycle {c + 1}/{n_cycles}" + ("" if c < n_motion else " (intensity and outlier check only)"))
+            if c >= n_motion:
+                pass
+            elif p.motion == "slice":
                 if c == 0:
                     # coarse to fine in the slices too: whole stacks, then packets of slices acquired together
                     if len(self.stacks) > 1:
@@ -641,7 +693,7 @@ class Reconstruction:
         t = time.time()
         self._progress("final", 0.0, "final super-resolution")
         op = self.build(self.masks())
-        x, st = self.srr(op, x0=x, iters=p.final_iterations)
+        x, st = self.srr(op, x0=x, iters=p.final_iterations, final=True)
         ys, ws = self.data_and_weights(op)
         cov = st["coverage"]
         b = op.adjoint([w * y for w, y in zip(ws, ys)])
@@ -682,10 +734,12 @@ class Reconstruction:
             n_inc = int(sum(x["included"] for x in per))
             stacks.append({"name": s.name, "reference": k == self.ref, "slices": s.nz, "slices_used": n_inc,
                            "thickness_mm": round(s.thickness, 3), "pixel_mm": [round(v, 3) for v in s.pixel],
+                           "inplane_resolution_mm": [round(v, 3) for v in s.resolution],
                            "binned": int(s.meta.get("binned", 1)), "noise_rel": round(self.noise[k], 4),
                            "stack_rotation_deg": round(ang, 3), "stack_translation_mm": round(disp, 3),
                            "slices_detail": per})
-        return {"params": self.p.to_dict(), "alpha_used": round(float(self.alpha), 5), "grid": self.grid.to_dict(),
+        return {"params": self.p.to_dict(), "alpha_used": round(float(self.alpha), 5),
+                "alpha_motion": round(float(self.alpha_motion), 5), "grid": self.grid.to_dict(),
                 "roi": self.roi.to_dict(), "stacks": stacks, "stack_registration": stack_reg,
                 "excluded_slices": len(excluded), "timing_s": self.timing,
                 "solver": {k: v for k, v in st.items() if k != "coverage"}}

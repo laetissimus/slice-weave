@@ -3,6 +3,7 @@
 Produces in ./dist:
   SliceWeave.exe               one file; double-click to run (unpacks itself to a temp folder)
   SliceWeave-portable.zip      a folder version that starts faster (unzip, run SliceWeave.exe)
+  THIRD-PARTY-NOTICES.txt      licences of the bundled Python and libraries (also inside the portable folder)
   SHA256SUMS.txt, build-report.json
 
 Run on Windows 10/11 x64 with Python 3.13:
@@ -34,11 +35,14 @@ sys.path.insert(0, str(ROOT))
 from sliceweave.config import VERSION  # noqa: E402
 
 README = f"""SliceWeave {VERSION} - standalone build
-Super-resolution reconstruction of 3-plane 2-D HASTE stacks into one isotropic volume
-(adult, paediatric and fetal brain MRI).
+Super-resolution reconstruction of 3-plane 2-D stacks into one isotropic volume:
+single-shot T2 (HASTE / SSFSE) for adult, paediatric and fetal brain, and 2-D FLAIR.
 RESEARCH USE ONLY - NOT FOR CLINICAL DIAGNOSIS
 
 Nothing to install. Double-click SliceWeave.exe:
+  * the one-file version unpacks itself to a temporary folder first, so it takes a little
+    longer to start; the portable folder (SliceWeave-portable.zip, unzip and run the
+    SliceWeave.exe inside) starts faster;
   * a console window opens and shows a one-time login link;
   * your browser opens SliceWeave at http://127.0.0.1:8766 (this computer only);
   * keep the console window open while you work; close it to stop SliceWeave.
@@ -49,6 +53,7 @@ Use a computer with full-disk encryption (BitLocker); the console shows its stat
 
 From a terminal the same commands as `sliceweave` are available, for example:
   SliceWeave.exe recon --mode fetal -o out.nii.gz <DICOM folders or NIfTI stacks>
+  SliceWeave.exe recon --mode flair -o out.nii.gz <DICOM folders or NIfTI stacks>
   SliceWeave.exe doctor      checks the installation and disk encryption
   SliceWeave.exe selftest    end-to-end test on synthetic phantoms (no patient data)
   SliceWeave.exe -h          all commands
@@ -56,7 +61,66 @@ From a terminal the same commands as `sliceweave` are available, for example:
 The executable is not code-signed. Windows SmartScreen may say "Windows protected your PC":
 choose "More info" then "Run anyway", or ask IT to allow or sign it. Managed computers with
 application control (AppLocker / WDAC) need IT approval before it can run.
+
+Bundled open-source components and their licences: THIRD-PARTY-NOTICES.txt.
 """
+
+# packages bundled into the executable (their dependencies are found from the package metadata)
+BUNDLED = ["numpy", "scipy", "starlette", "uvicorn", "python-multipart", "pydicom", "python-gdcm"]
+
+
+def _bundled_distributions() -> dict:
+    """The bundled packages and everything they require on this machine (no extras)."""
+    from packaging.requirements import Requirement  # a PyInstaller dependency
+    found, todo = {}, list(BUNDLED)
+    while todo:
+        name = todo.pop()
+        key = name.lower().replace("_", "-")
+        if key in found:
+            continue
+        try:
+            dist = metadata.distribution(name)
+        except metadata.PackageNotFoundError:
+            continue
+        found[key] = dist
+        for r in dist.requires or []:
+            req = Requirement(r)
+            if req.marker is None or req.marker.evaluate({"extra": ""}):
+                todo.append(req.name)
+    return found
+
+
+def third_party_notices() -> str:
+    """Licence texts of Python and of every bundled package, as their binary licences require."""
+    rule = "=" * 78
+    out = [f"SliceWeave {VERSION} - third-party notices",
+           "The executable bundles the components below. Each is used under its own licence, reproduced",
+           "here from the installed package. The executable is built with PyInstaller, whose bootloader is",
+           "GPL-2.0 with an exception that allows distribution of built programs under any terms.", ""]
+    py_lic = Path(sys.base_prefix) / "LICENSE.txt"
+    out += [rule, f"Python {platform.python_version()} (Python Software Foundation License)", rule]
+    out.append(py_lic.read_text(encoding="utf-8", errors="replace") if py_lic.is_file()
+               else "Python Software Foundation License Version 2: https://docs.python.org/3/license.html")
+    for key, dist in sorted(_bundled_distributions().items()):
+        md = dist.metadata
+        lic = md.get("License-Expression") or ""
+        if not lic:
+            short = (md.get("License") or "").strip()
+            classifiers = [c.split("::")[-1].strip() for c in md.get_all("Classifier") or [] if c.startswith("License ::")]
+            lic = short if short and len(short) < 80 and "\n" not in short else "; ".join(classifiers)
+        files = [f for f in dist.files or []
+                 if str(f).split("/")[0].endswith(".dist-info")
+                 and any(w in f.name.upper() for w in ("LICENSE", "LICENCE", "COPYING", "NOTICE"))]
+        out += ["", rule, f"{md['Name']} {dist.version}" + (f" ({lic})" if lic else ""), rule]
+        texts = []
+        for f in sorted(files, key=str):
+            try:
+                texts.append(f"--- {f.name} ---\n" + dist.locate_file(f).read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+        out.append("\n\n".join(texts) if texts else f"Licence: {lic or 'see the project page'}"
+                   + (f"; {md.get('Home-page') or ''}" if md.get("Home-page") else ""))
+    return "\n".join(out).rstrip() + "\n"
 
 
 def _args(mode: str) -> list[str]:
@@ -97,11 +161,14 @@ def main():
         print(f"== PyInstaller {mode}", flush=True)
         PyInstaller.__main__.run(_args(mode))
     exe = DIST / (NAME + (".exe" if os.name == "nt" else ""))
+    notices = third_party_notices()
     (DIST / "README-WINDOWS.txt").write_text(README, encoding="utf-8")
+    (DIST / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
     outputs = [exe]
     if "onedir" in modes:
         folder = DIST / "portable" / NAME
         (folder / "README-WINDOWS.txt").write_text(README, encoding="utf-8")
+        (folder / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
         zpath = DIST / f"{NAME}-portable.zip"
         with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
             for f in sorted(folder.rglob("*")):

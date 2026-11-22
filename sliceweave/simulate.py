@@ -19,6 +19,9 @@ from .stacks import Stack, plane_label
 # T2-weighted (HASTE-like) relative intensities
 T2 = {"bg": 0.0, "scalp": 0.55, "skull": 0.05, "csf": 1.0, "gm": 0.52, "wm": 0.38, "deep": 0.42,
       "fetal_wm": 0.62, "fetal_gm": 0.36, "fluid": 0.95, "uterus": 0.45}
+# FLAIR: CSF suppressed, grey matter brighter than white matter, lesions bright
+FLAIR = {"bg": 0.0, "scalp": 0.55, "skull": 0.05, "csf": 0.06, "gm": 0.62, "wm": 0.45, "deep": 0.55, "lesion": 0.95}
+LESION_RADII_MM = (1.0, 1.0, 1.25, 1.5, 1.5, 2.0, 2.0, 2.5, 2.5, 3.0, 3.0, 4.0)
 
 
 # ----------------------------------------------------------------- phantoms
@@ -43,9 +46,13 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
     Fetal (about 30 weeks): 80 mm brain with shallow folding, a thin dark cortical ribbon,
     bright unmyelinated white matter, asymmetric ventricles, cerebellum and brainstem, inside
     amniotic fluid and a textured uterine background.
-    Both include resolution targets (thin plates in three orientations, small spheres)."""
+    FLAIR (kind "flair"): the adult anatomy with FLAIR contrast and 12 bright white-matter
+    lesions of 2-8 mm diameter (ellipsoids, listed in info["lesions"]).
+    All include resolution targets (thin plates in three orientations, small spheres)."""
     rng = np.random.default_rng(seed)
-    adult = kind == "adult"
+    flair = kind == "flair"
+    adult = kind in ("adult", "flair")
+    tab = FLAIR if flair else T2
     fov = 176.0 if adult else 136.0
     n, c, aff = _grid(fov, spacing)
     X, Y, Z = np.meshgrid(c, c, c, indexing="ij")
@@ -55,10 +62,10 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
     R = np.sqrt((X / a) ** 2 + (Y / b) ** 2 + (Z / cc) ** 2)   # 1 at the cortical surface
     f1 = _field(rng, (n, n, n), (4.0 * sc) / spacing)          # folding depth
     f2 = _field(rng, (n, n, n), (2.6 * sc) / spacing)          # sulcal pattern
-    gm, wm, csf = (T2["gm"], T2["wm"], T2["csf"]) if adult else (T2["fetal_gm"], T2["fetal_wm"], T2["csf"])
+    gm, wm, csf = (tab["gm"], tab["wm"], tab["csf"]) if adult else (T2["fetal_gm"], T2["fetal_wm"], T2["csf"])
     if adult:
-        vol[R < 1.18] = T2["scalp"]
-        vol[R < 1.10] = T2["skull"]
+        vol[R < 1.18] = tab["scalp"]
+        vol[R < 1.10] = tab["skull"]
         vol[R < 1.04] = csf
     else:
         tex = _field(rng, (n, n, n), 3.0 / spacing)
@@ -79,7 +86,7 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
     # deep grey nuclei, ventricles (asymmetric), cerebellum, brainstem
     for sx in (-1, 1):
         dg = (((X - sx * 16 * sc) / (11 * sc)) ** 2 + ((Y + 2 * sc) / (17 * sc)) ** 2 + ((Z + 2 * sc) / (11 * sc)) ** 2) < 1
-        vol[dg] = T2["deep"] if adult else gm * 1.15
+        vol[dg] = tab["deep"] if adult else gm * 1.15
         big = 1.25 if sx < 0 else 1.0
         vent = (((np.abs(X) - 8 * sc) / (5 * sc * big)) ** 2 + ((Y - 6 * sc) / (24 * sc)) ** 2
                 + ((Z - 10 * sc) / (8 * sc * big)) ** 2 < 1) & (np.sign(X) == sx)
@@ -105,28 +112,61 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
         ctr = np.array([-24 + 14 * k, 34, -14]) * sc
         sph = (X - ctr[0]) ** 2 + (Y - ctr[1]) ** 2 + (Z - ctr[2]) ** 2 < (r * (1 if adult else 0.8)) ** 2
         vol[sph] = csf
+    lesions = _add_lesions(vol, c, spacing, wm, rng, R) if flair else []
     vol = ndi.gaussian_filter(vol, 0.35).astype(np.float32)
     info = {"kind": kind, "spacing": spacing, "brain_half_axes_mm": [a, b, cc], "simulated": True}
+    if flair:
+        info["lesions"] = lesions
     return vol, aff, info
+
+
+def _add_lesions(vol, c, spacing, wm, rng, R) -> list[dict]:
+    """Bright ellipsoidal white-matter lesions (axis ratio up to 1.6, random orientation), at
+    least 12 mm apart, centred in white matter."""
+    from .geometry import rotvec_to_matrix
+    n = len(c)
+    out = []
+    for r in LESION_RADII_MM:
+        for _ in range(2000):
+            idx = rng.integers(0, n, 3)
+            if not (0.3 < R[tuple(idx)] < 0.78) or abs(vol[tuple(idx)] - wm) > 1e-6:
+                continue
+            ctr = c[idx]
+            if any(np.linalg.norm(ctr - np.array(L["center"])) < 12.0 for L in out):
+                continue
+            radii = np.array([r * rng.uniform(1.0, 1.6), r, r])
+            Rm = rotvec_to_matrix(rng.normal(0, 1, 3))
+            h = int(np.ceil((radii.max() + 1.5) / spacing))
+            sl = tuple(slice(max(i - h, 0), min(i + h + 1, n)) for i in idx)
+            gx, gy, gz = np.meshgrid(c[sl[0]], c[sl[1]], c[sl[2]], indexing="ij")
+            q = (np.stack([gx, gy, gz], -1) - ctr) @ Rm
+            inside = ((q / radii) ** 2).sum(-1) <= 1.0
+            vol[sl][inside] = FLAIR["lesion"]
+            out.append({"center": [round(float(v), 3) for v in ctr], "radii": [round(float(v), 3) for v in radii],
+                        "R": np.round(Rm, 6).tolist(), "diameter_mm": round(2 * r, 2)})
+            break
+    return out
 
 
 # -------------------------------------------------------------- stack simulation
 _GH3 = (np.array([-1.224744871, 0.0, 1.224744871]), np.array([0.2954089752, 1.181635901, 0.2954089752]) / np.sqrt(np.pi))
 
 
-def stack_geometry(axes: np.ndarray, center, n_slices: int, pixel: float, fov_mm: tuple, spacing: float,
+def stack_geometry(axes: np.ndarray, center, n_slices: int, pixel, fov_mm: tuple, spacing: float,
                    n_rows: int | None = None) -> np.ndarray:
-    """slice_aff (nz, 4, 4) for a stack with in-plane directions axes[:,0], axes[:,1]."""
+    """slice_aff (nz, 4, 4) for a stack with in-plane directions axes[:,0], axes[:,1].
+    ``pixel``: one size or (along i, along j)."""
     u, v, n = axes[:, 0], axes[:, 1], axes[:, 2]
-    nx = int(round(fov_mm[0] / pixel))
-    ny = int(round(fov_mm[1] / pixel))
+    px, py = (pixel, pixel) if np.isscalar(pixel) else pixel
+    nx = int(round(fov_mm[0] / px))
+    ny = int(round(fov_mm[1] / py))
     out = np.zeros((n_slices, 4, 4))
     for s in range(n_slices):
         off = (s - (n_slices - 1) / 2.0) * spacing
-        o = np.asarray(center, float) - u * pixel * (nx - 1) / 2 - v * pixel * (ny - 1) / 2 + n * off
+        o = np.asarray(center, float) - u * px * (nx - 1) / 2 - v * py * (ny - 1) / 2 + n * off
         A = np.eye(4)
-        A[:3, 0] = u * pixel
-        A[:3, 1] = v * pixel
+        A[:3, 0] = u * px
+        A[:3, 1] = v * py
         A[:3, 2] = n
         A[:3, 3] = o
         out[s] = A
@@ -141,7 +181,8 @@ def sample_slice(truth, truth_aff, A, T, shape2d, pixel, thickness, profile="box
     u = A[:3, 0] / np.linalg.norm(A[:3, 0])
     v = A[:3, 1] / np.linalg.norm(A[:3, 1])
     n = np.cross(u, v)
-    sxy = 1.2 * pixel / 2.3548
+    px, py = (pixel, pixel) if np.isscalar(pixel) else pixel
+    sx, sy = 1.2 * px / 2.3548, 1.2 * py / 2.3548
     if profile == "box":
         zs = (np.arange(7) - 3) / 7.0 * thickness  # 7 equally spaced points over the slice width
         zw = np.ones(7) / 7.0
@@ -154,7 +195,7 @@ def sample_slice(truth, truth_aff, A, T, shape2d, pixel, thickness, profile="box
     for a, wa in zip(*_GH3):
         for b, wb in zip(*_GH3):
             for z, wz in zip(zs, zw):
-                P = P0 + u * (a * np.sqrt(2) * sxy) + v * (b * np.sqrt(2) * sxy) + n * z
+                P = P0 + u * (a * np.sqrt(2) * sx) + v * (b * np.sqrt(2) * sy) + n * z
                 Q = apply(T, P)
                 val = ndi.map_coordinates(truth, apply(inv, Q).T, order=1, mode="constant", cval=0.0)
                 if static is not None:
@@ -194,14 +235,24 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
                     noise: float = 0.02, bias: float = 0.15, corrupt: int | None = None, log=None,
                     static=None, fetal_radius=None, motion_deg: float = 6.0, motion_mm: float = 3.0,
                     tilt_deg: float | None = None, center=None, cover_mm: float | None = None,
-                    fov_mm: float | None = None) -> tuple[list[Stack], list[np.ndarray]]:
+                    fov_mm: float | None = None, pixel_mm: float | None = None, thick_mm: float | None = None,
+                    gap_mm: float | None = None) -> tuple[list[Stack], list[np.ndarray]]:
     """Simulate 3-plane stacks (adult: AX, COR, SAG once each; fetal: each orientation twice,
     oblique, with slice motion). Returns the stacks and the true per-slice transforms
     (pixel world -> truth world)."""
     rng = np.random.default_rng(seed)
-    adult = kind == "adult"
+    flair = kind == "flair"
+    adult = kind in ("adult", "flair")
     motion = (not adult) if motion is None else motion
-    if adult:
+    recon_matrix = None
+    if flair:
+        # 2-D FLAIR: 256 (readout) x 192 (phase) acquired over 230 mm, zero-filled to 512 x 512,
+        # 5 mm slices with a 1.5 mm gap; phase encoding along the first image axis
+        pixel, thick, gap, fov = (230.0 / 192, 230.0 / 256), 5.0, 1.5, (230.0, 230.0)
+        recon_matrix = (512, 512)
+        planes = [("AX", 0), ("COR", 0), ("SAG", 0)]
+        cover = 150.0
+    elif adult:
         pixel, thick, gap, fov = 0.9, 4.0, 0.4, (176.0, 176.0)
         planes = [("AX", 0), ("COR", 0), ("SAG", 0)]
         cover = 150.0
@@ -215,6 +266,12 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
         cover = float(cover_mm)
     if fov_mm:
         fov = (float(fov_mm), float(fov_mm))
+    if pixel_mm and not flair:
+        pixel = float(pixel_mm)
+    if thick_mm:
+        thick = float(thick_mm)
+    if gap_mm is not None:
+        gap = float(gap_mm)
     base_axes = {"AX": np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], float).T,   # rows x, columns -y
                  "COR": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float).T,
                  "SAG": np.array([[0, 1, 0], [0, 0, -1], [-1, 0, 0]], float).T}
@@ -254,7 +311,17 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
             cvec = rng.normal(0, 1, 3)
             field = 1.0 + bias * (cvec[0] * Gx + cvec[1] * Gy + 0.5 * cvec[2] * Gz) / np.sqrt((cvec ** 2).sum())
             data *= field.astype(np.float32)
-        if noise:
+        meta_extra = {}
+        if recon_matrix is not None:
+            # complex noise at the acquired resolution, then zero-filled interpolation (as the scanner does)
+            cplx = data + (rng.normal(0, noise, data.shape) + 1j * rng.normal(0, noise, data.shape) if noise else 0)
+            data = np.abs(zero_fill(cplx, recon_matrix)).astype(np.float32)
+            fx, fy = nx / recon_matrix[0], ny / recon_matrix[1]
+            sa = np.array([A @ np.diag([fx, fy, 1.0, 1.0]) for A in sa])
+            meta_extra = {"acq_res": [round(float(pixel[0]), 4), round(float(pixel[1]), 4)],
+                          "acquired_matrix": [nx, ny], "recon_matrix": list(recon_matrix)}
+            nx, ny = recon_matrix
+        elif noise:
             data = np.sqrt((data + rng.normal(0, noise, data.shape)) ** 2 + rng.normal(0, noise, data.shape) ** 2)
         data = data.astype(np.float32)
         bad = []
@@ -265,9 +332,23 @@ def simulate_stacks(truth, truth_aff, kind: str = "adult", seed: int = 3, motion
             data[:, r0:r0 + ny // 2, s] *= np.float32(rng.uniform(0.2, 0.5))
             bad.append(s)
         st = Stack(f"SIM {name}{'' if not rep else ' 2'}", data * 1000.0, sa, thick, None, plane_label(ax[:, 2]),
-                   {"simulated": True, "acq_order": [int(v) for v in np.argsort(acq)], "corrupted_slices": bad})
+                   {"simulated": True, "acq_order": [int(v) for v in np.argsort(acq)], "corrupted_slices": bad,
+                    **meta_extra})
         stacks.append(st)
         truths.append(Ts)
         if log:
-            log(f"simulated {st.name}: {nx}x{ny}x{nz}, pixel {pixel} mm, thickness {thick} mm")
+            log(f"simulated {st.name}: {nx}x{ny}x{nz}, pixel {st.pixel[0]:.2f} mm (acquired {st.resolution[0]:.2f} x "
+                f"{st.resolution[1]:.2f}), thickness {thick} mm, gap {gap} mm")
     return stacks, truths
+
+
+def zero_fill(img: np.ndarray, shape2d: tuple) -> np.ndarray:
+    """Zero-filled (sinc) interpolation of each slice to ``shape2d``, keeping the first sample's
+    position: k-space is padded symmetrically, as scanners do for an interpolated matrix."""
+    nx, ny = img.shape[:2]
+    mx, my = shape2d
+    K = np.fft.fftshift(np.fft.fft2(img, axes=(0, 1)), axes=(0, 1))
+    P = np.zeros((mx, my) + img.shape[2:], complex)
+    ox, oy = (mx - nx) // 2, (my - ny) // 2
+    P[ox:ox + nx, oy:oy + ny] = K
+    return np.fft.ifft2(np.fft.ifftshift(P, axes=(0, 1)), axes=(0, 1)) * (mx * my) / (nx * ny)

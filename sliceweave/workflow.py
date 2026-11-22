@@ -17,7 +17,7 @@ from .config import VERSION
 from .geometry import Grid, euler_deg_to_matrix, make_grid, nearest_ras_axes
 from .ingest import suggest_reference
 from .nifti import read_nifti, write_nifti
-from .recon import ROI, Params, Reconstruction, default_roi, grid_for
+from .recon import FLAIR_SLICE_MSG, MODE_LABELS, MODES, ROI, Params, Reconstruction, default_roi, grid_for
 from .store import CaseStore, StoreError, now_iso
 
 EDITABLE = ("resolution", "motion", "cycles", "alpha", "regularizer", "outlier_rejection", "bias_correction",
@@ -42,7 +42,12 @@ def make_plan(store: CaseStore, cid: str, mode: str | None = None) -> dict:
     case, entries, stacks = load_stacks(store, cid)
     if not entries:
         raise StoreError("import stacks first")
-    mode = mode or (case.get("plan") or {}).get("mode") or case.get("mode_hint") or "adult"
+    prev = (case.get("plan") or {}).get("mode")
+    mode = mode or prev or case.get("mode_hint") or "adult"
+    if mode not in MODES:
+        raise StoreError(f"mode must be one of {', '.join(MODES)}")
+    if prev and mode != prev:
+        _select_for_mode(entries, mode)
     inc_e, inc_s = included(entries, stacks)
     if not inc_e:
         raise StoreError("include at least one stack")
@@ -51,8 +56,9 @@ def make_plan(store: CaseStore, cid: str, mode: str | None = None) -> dict:
     roi = default_roi(inc_s, ref, mode)
     p = Params.preset(mode)
     plan = {"mode": mode, "reference": ref_id, "params": {k: getattr(p, k) for k in EDITABLE},
-            "roi": roi.to_dict(), "reference_suggested": ref_id, "roi_source": "automatic" if mode == "adult"
+            "roi": roi.to_dict(), "reference_suggested": ref_id, "roi_source": "automatic" if mode != "fetal"
             else ("brain mask" if inc_s[ref].mask is not None else "default - place it on the brain")}
+    plan["warnings"] = plan_warnings(entries, mode)
     case["stacks"] = entries
     case["plan"] = plan
     case["status"] = "planned"
@@ -78,10 +84,15 @@ def update_plan(store: CaseStore, cid: str, changes: dict) -> dict:
             roi = ROI.from_dict(plan["roi"])
             roi.R = nearest_ras_axes(st.axes)
             plan["roi"] = roi.to_dict()
+    old = dict(plan["params"])
     for k, v in (changes.get("params") or {}).items():
         if k not in EDITABLE:
             raise StoreError(f"unknown setting {k}")
-        plan["params"][k] = _coerce(k, v)
+        v = _coerce(k, v)
+        if k == "motion" and v == "slice" and plan.get("mode") == "flair":
+            raise StoreError(FLAIR_SLICE_MSG)
+        plan["params"][k] = v
+    _cycles_follow_motion(plan, old)
     if "roi" in changes and changes["roi"]:
         r = changes["roi"]
         roi = ROI.from_dict(plan["roi"])
@@ -93,9 +104,69 @@ def update_plan(store: CaseStore, cid: str, changes: dict) -> dict:
             roi.shape = "ellipsoid" if r["shape"] == "ellipsoid" else "box"
         plan["roi"] = roi.to_dict()
         plan["roi_source"] = "user"
+    plan["warnings"] = plan_warnings(case["stacks"], plan.get("mode", "adult"), plan["params"].get("resolution"))
     case["plan"] = plan
     store.save(cid, case)
     return plan
+
+
+SLICE_CYCLES = 6   # slice-to-volume needs several coarse-to-fine cycles (docs/VALIDATION.md, number of cycles)
+
+
+def _cycles_follow_motion(plan: dict, old: dict):
+    """Switching to slice-to-volume raises an unchanged low cycle count to the slice default, and
+    switching back restores the mode's default (the user's own cycle count is kept)."""
+    p = plan["params"]
+    if p.get("motion") == old.get("motion") or p.get("cycles") != old.get("cycles"):
+        return
+    if p["motion"] == "slice" and int(p.get("cycles", 0)) < 4:
+        p["cycles"] = max(SLICE_CYCLES, Params.preset(plan.get("mode", "adult")).cycles)
+    elif old.get("motion") == "slice" and int(p.get("cycles", 0)) == SLICE_CYCLES:
+        p["cycles"] = Params.preset(plan.get("mode", "adult")).cycles
+
+
+def _select_for_mode(entries: list[dict], mode: str):
+    """Switching to FLAIR selects the FLAIR stacks; switching back selects the single-shot ones
+    (a reconstruction combines one kind of series)."""
+    fl = [e for e in entries if e.get("flair_like")]
+    ss = [e for e in entries if e.get("haste_like")]
+    if mode == "flair" and len(fl) >= 1:
+        for e in entries:
+            e["include"] = bool(e.get("flair_like"))
+    elif mode != "flair" and fl and ss:
+        for e in entries:
+            e["include"] = bool(e.get("haste_like"))
+
+
+def plan_warnings(entries: list[dict], mode: str, resolution: float | None = None) -> list[str]:
+    """Things that make the stacks unsuitable to combine, shown before the reconstruction runs."""
+    inc = [e for e in entries if e.get("include")]
+    out = []
+    acq = [max(e["resolution_mm"]) for e in inc if e.get("resolution_mm")]
+    if resolution and acq and resolution > 1.0 and resolution > 1.5 * float(np.median(acq)):
+        span = f"{min(acq):.1f}" if f"{min(acq):.1f}" == f"{max(acq):.1f}" else f"{min(acq):.1f}-{max(acq):.1f}"
+        out.append(f"Output voxel {resolution:g} mm is much coarser than the acquired in-plane resolution "
+                   f"({span} mm): cortex and sulci are blurred. 1.0 mm or finer keeps the in-plane detail.")
+    kinds = {e.get("sequence", "other") for e in inc}
+    if "flair" in kinds and len(kinds) > 1:
+        out.append("FLAIR and non-FLAIR series are both selected: one reconstruction must combine one contrast.")
+    if mode == "flair" and inc and "flair" not in kinds:
+        out.append("FLAIR mode, but no selected series looks like FLAIR (name or long inversion time).")
+    if mode != "flair" and "flair" in kinds and len(kinds) == 1:
+        out.append("The selected series look like FLAIR: choose the 2-D FLAIR mode (motion between series only).")
+    for key, name, tol in (("te_ms", "echo time", 0.15), ("tr_ms", "repetition time", 0.25), ("ti_ms", "inversion time", 0.1)):
+        vals = [float(e[key]) for e in inc if isinstance(e.get(key), (int, float)) and e[key] > 0]
+        if len(vals) >= 2 and (max(vals) - min(vals)) > tol * max(vals):
+            out.append(f"Selected series differ in {name} ({min(vals):.0f}-{max(vals):.0f} ms): contrast may differ "
+                       "between planes.")
+    if len(inc) < 3:
+        out.append("Fewer than three stacks: through-plane detail cannot be recovered in every direction.")
+    else:
+        planes = {e.get("plane") for e in inc}
+        if len(planes) < 3:
+            out.append(f"Only {', '.join(sorted(p for p in planes if p))} planes selected: three orthogonal planes "
+                       "are needed for isotropic detail.")
+    return out
 
 
 def update_stacks(store: CaseStore, cid: str, changes: list[dict]) -> dict:
@@ -171,7 +242,7 @@ def run(store: CaseStore, cid: str, progress=None, cancel=None, log=None) -> dic
     d = store.dir(cid)
     out = d / "output"
     out.mkdir(exist_ok=True)
-    desc = f"SliceWeave {VERSION} SRR {p.mode} RESEARCH"
+    desc = f"SliceWeave {VERSION} SRR {MODE_LABELS.get(p.mode, p.mode)} RESEARCH"
     write_nifti(out / "srr_native.nii.gz", res.volume, res.grid.affine, desc)
     write_nifti(out / "average_native.nii.gz", res.average, res.grid.affine, desc + " average")
     write_nifti(out / "srr.nii.gz", res.volume, res.grid.affine, desc)

@@ -127,6 +127,8 @@ class CaseStore:
             arrays["mask"] = st.mask.astype(np.uint8)
         if st.meta.get("acq_order") is not None:
             arrays["acq_order"] = np.asarray(st.meta["acq_order"], np.int32)
+        if st.meta.get("acq_res"):
+            arrays["acq_res"] = np.asarray(st.meta["acq_res"], np.float64)
         tmp = p.with_name(p.name + ".part.npz")
         np.savez_compressed(tmp, **arrays)
         tmp.replace(p)
@@ -137,6 +139,8 @@ class CaseStore:
         meta = {"id": entry["id"]}
         if "acq_order" in z:
             meta["acq_order"] = [int(v) for v in z["acq_order"]]
+        if "acq_res" in z:
+            meta["acq_res"] = [float(v) for v in z["acq_res"]]
         mask = z["mask"].astype(bool) if "mask" in z else None
         th = float(entry.get("thickness_override") or z["thickness"])
         return Stack(entry.get("label") or entry["id"], z["data"], z["slice_aff"], th, mask, entry.get("plane", ""), meta)

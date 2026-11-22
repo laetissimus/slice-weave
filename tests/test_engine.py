@@ -98,3 +98,38 @@ def test_packets_cover_every_slice_once():
 
 def test_auto_alpha_grows_with_noise():
     assert auto_alpha(0.01, "huber") < auto_alpha(0.05, "huber") < auto_alpha(0.1, "huber")
+    # final volumes of FLAIR (small lesions) and adult / paediatric T2 (cortex, sulci): weaker weight
+    # than the registration volumes; fetal unchanged
+    for mode in ("flair", "adult"):
+        assert auto_alpha(0.05, "huber", mode) < 0.5 * auto_alpha(0.05, "huber")
+    assert auto_alpha(0.05, "huber", "fetal") == auto_alpha(0.05, "huber")
+
+
+@pytest.mark.parametrize("motion,cycles,outliers,bias,expect_reg,expect_weights", [
+    ("stack", 2, True, True, 2, 2),     # two cycles: register, then intensity/outlier check, twice
+    ("stack", 0, True, True, 0, 1),     # 0 cycles: no refinement, intensity/outlier check still once
+    ("none", 5, False, True, 0, 1),     # no motion correction: cycles ignored, intensity correction once
+    ("none", 5, False, False, 0, 0),    # nothing to do between SRRs
+])
+def test_cycles_schedule(adult, monkeypatch, motion, cycles, outliers, bias, expect_reg, expect_weights):
+    truth, aff, info, stacks, Ts = adult
+    p = Params.preset("adult", resolution=3.0, motion=motion, cycles=cycles, outlier_rejection=outliers,
+                      bias_correction=bias)
+    p.final_iterations, p.cycle_iterations = 2, 2
+    calls = {"reg": 0, "weights": 0}
+    rec = Reconstruction(stacks, default_roi(stacks, 0, "adult"), p, log=lambda m: None)
+    orig_reg, orig_w = rec.register_stacks, rec.update_weights
+
+    def reg(*a, **k):
+        calls["reg"] += 1
+        return orig_reg(*a, **k)
+
+    def weights(*a, **k):
+        calls["weights"] += 1
+        return orig_w(*a, **k)
+    monkeypatch.setattr(rec, "register_stacks", reg)
+    monkeypatch.setattr(rec, "update_weights", weights)
+    rec.run()
+    # register_stacks also runs once before the first SRR when motion correction is on
+    assert calls["reg"] == expect_reg + (1 if motion != "none" else 0)
+    assert calls["weights"] == expect_weights

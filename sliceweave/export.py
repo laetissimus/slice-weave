@@ -11,6 +11,7 @@ import numpy as np
 from . import dicom
 from .config import RESEARCH_BANNER, VERSION
 from .dicom_write import new_uid, write_series
+from .layers import brain_window
 from .nifti import read_nifti
 from .store import CaseStore, StoreError
 
@@ -19,7 +20,21 @@ STUDY_KEYS = ["PatientName", "PatientID", "PatientBirthDate", "PatientSex", "Pat
               "StudyInstanceUID", "StudyDate", "StudyTime", "AccessionNumber", "StudyID", "StudyDescription",
               "ReferringPhysicianName", "FrameOfReferenceUID", "InstitutionName", "Manufacturer"]
 EXTRA_TAGS = {"SoftwareVersions": (0x00181020, "LO"), "DerivationDescription": (0x00082111, "ST"),
-              "SeriesDate": (0x00080021, "DA"), "PatientPosition": (0x00185100, "CS")}
+              "SeriesDate": (0x00080021, "DA"), "PatientPosition": (0x00185100, "CS"),
+              "WindowCenterWidthExplanation": (0x00281055, "LO")}
+
+
+def dicom_windows(data: np.ndarray) -> dict:
+    """Two display windows, the first used by default: BRAIN (grey and white matter spread over the
+    grey levels, CSF near white; as the viewer) and FULL (the whole intensity range)."""
+    pos = data[data > 0]
+    if not pos.size:
+        return {"WindowCenter": 0.5, "WindowWidth": 1.0}
+    full_hi = float(np.percentile(pos, 99.9))
+    lo, hi = brain_window(pos, float(np.percentile(pos, 99.0)))
+    return {"WindowCenter": [round((lo + hi) / 2, 3), round(full_hi / 2, 3)],
+            "WindowWidth": [round(hi - lo, 3), round(full_hi, 3)],
+            EXTRA_TAGS["WindowCenterWidthExplanation"]: ["BRAIN", "FULL"]}
 
 
 def output_paths(store: CaseStore, cid: str) -> dict:
@@ -28,6 +43,9 @@ def output_paths(store: CaseStore, cid: str) -> dict:
     if not p["srr"].exists():
         raise StoreError("no reconstruction yet")
     return p
+
+
+SHORT = {"adult": "T2", "fetal": "fetal T2", "flair": "FLAIR"}
 
 
 def nifti_name(case: dict) -> str:
@@ -60,13 +78,13 @@ def dicom_zip(store: CaseStore, cid: str, which: str = "srr", attach: dict | Non
     vox = float(np.linalg.norm(v.affine[:3, 0]))
     label = "SRR" if which == "srr" else "AVG"
     hdr = {
-        "SeriesDescription": f"SliceWeave {label} {mode} {vox:.2f}mm RESEARCH",
+        "SeriesDescription": f"SliceWeave {label} {SHORT.get(mode, mode)} {vox:.2f}mm RESEARCH",
         "SeriesNumber": 9100 if which == "srr" else 9101,
         "ImageType": ["DERIVED", "SECONDARY", "SRR" if which == "srr" else "AVERAGE"],
         "Manufacturer": "SliceWeave (research software)",
         "ImageComments": f"{RESEARCH_BANNER}. Super-resolution reconstruction of 2-D stacks, SliceWeave {VERSION}.",
         "BodyPartExamined": "BRAIN", "BurnedInAnnotation": "NO",
-        "WindowCenter": hi / 2, "WindowWidth": hi,
+        **dicom_windows(data),
         EXTRA_TAGS["SoftwareVersions"]: f"SliceWeave {VERSION}",
         EXTRA_TAGS["DerivationDescription"]: "Motion-corrected super-resolution reconstruction from 2-D stacks",
     }

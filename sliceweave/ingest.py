@@ -59,27 +59,44 @@ def ingest(store: CaseStore, case_id: str, paths: list, tmpdir: Path, log=None) 
         sid = f"s{len(entries) + 1:02d}"
         dx, dy = st.pixel
         side = st.meta.pop("sidecar_text", "")
-        haste = series.looks_like_haste(s) or any(h in side.lower() for h in series.HASTE_HINTS)
+        ti = s.ti or st.meta.pop("ti_ms", None)
+        te = s.te or st.meta.pop("te_ms", None)
+        tr = s.tr or st.meta.pop("tr_ms", None)
+        for k in ("ti_ms", "te_ms", "tr_ms"):
+            st.meta.pop(k, None)
+        flair = series.looks_like_flair(s, text=side, ti_ms=ti, te_ms=te)
+        haste = not flair and (series.looks_like_haste(s) or any(h in side.lower() for h in series.HASTE_HINTS))
         if FETAL_HINTS.search(side):
             fetal_hint = True
+        rx, ry = st.resolution
         entries.append({
             "id": sid, "label": f"{st.plane} {s.series_number or len(entries) + 1}", "description": desc,
             "plane": st.plane, "shape": [int(v) for v in st.shape], "pixel_mm": [round(dx, 3), round(dy, 3)],
             "thickness_mm": round(float(st.thickness), 3), "spacing_mm": round(st.spacing, 3),
             "thickness_source": "DICOM SliceThickness" if s.kind == "dicom" and s.thickness else
             (st.meta.get("thickness_from") or "slice spacing (no thickness in the file)"),
-            "source": s.kind, "haste_like": bool(haste), "include": True, "has_mask": False,
+            "resolution_mm": [round(rx, 3), round(ry, 3)],
+            "resolution_source": "acquisition matrix" if st.meta.get("acq_res") else "pixel size",
+            "sequence": "flair" if flair else ("single-shot" if haste else "other"),
+            "source": s.kind, "haste_like": bool(haste), "flair_like": bool(flair), "include": True, "has_mask": False,
+            "ti_ms": ti,
             "acq_order_known": st.meta.get("acq_order") is not None,
-            "series_number": s.series_number, "te_ms": s.te, "tr_ms": s.tr, "field_t": s.field_t,
+            "series_number": s.series_number, "te_ms": te, "tr_ms": tr, "field_t": s.field_t,
             "warnings": list(s.warnings) + ([st.meta["warning"]] if st.meta.get("warning") else []),
         })
         st.meta["sid"] = sid
         store.save_stack(case_id, sid, st)
         log(f"imported {entries[-1]['label']}: {st.shape[0]}x{st.shape[1]}x{st.nz}, pixel {dx:.2f} mm, "
-            f"thickness {st.thickness:.2f} mm" + (" (HASTE-like)" if haste else ""))
+            f"thickness {st.thickness:.2f} mm" + (" (HASTE-like)" if haste else "") + (" (FLAIR)" if flair else ""))
     new = entries[n0:]
-    # include only HASTE-like 2-D series when some are recognised
-    if any(e["haste_like"] for e in new):
+    # a reconstruction combines one kind of series: single-shot T2 when recognised, else 2-D FLAIR
+    n_ss = sum(e["haste_like"] for e in new)
+    n_fl = sum(e.get("flair_like", False) for e in new)
+    flair_case = n_fl >= 2 and n_ss < 2 and not fetal_hint
+    if flair_case:
+        for e in new:
+            e["include"] = bool(e.get("flair_like"))
+    elif n_ss:
         for e in new:
             e["include"] = e["haste_like"]
     # brain masks (NIfTI) made by another tool: matched to a stack with the same grid
@@ -90,9 +107,11 @@ def ingest(store: CaseStore, case_id: str, paths: list, tmpdir: Path, log=None) 
     case["status"] = "imported" if entries else "created"
     if fetal_hint:
         case["mode_hint"] = "fetal"
+    elif flair_case:
+        case["mode_hint"] = "flair"
     store.save(case_id, case)
     summary = {"imported": len(new), "rejected": rejected, "masks": len(masks), "fetal_hint": fetal_hint,
-               "series_found": len(found)}
+               "flair_stacks": n_fl, "single_shot_stacks": n_ss, "series_found": len(found)}
     store.log(case_id, f"import: {len(new)} stack(s), {len(rejected)} series not used, {len(masks)} mask file(s)")
     return summary
 
@@ -144,7 +163,7 @@ def suggest_reference(stacks: list[Stack], entries: list[dict], mode: str) -> st
     scores = {e["id"]: motion_score(st, st.mask) for e, st in cand}
     best = max(scores, key=scores.get)
     if mode != "fetal":
-        # adults: the axial stack (the usual reading plane) unless none is included; the neighbour
+        # adults and FLAIR: the axial stack (the usual reading plane) unless none is included; the neighbour
         # correlation is not comparable between planes of a still head
         ax = [e["id"] for e, _ in cand if e["plane"] == "AX"]
         if ax:

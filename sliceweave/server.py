@@ -390,7 +390,8 @@ def create_app(settings: Settings, token: str, port: int) -> Starlette:
         data, meta = await run_in_threadpool(_layer_bytes, cid, which, lid)
         return Response(data, media_type="application/octet-stream",
                         headers={"x-sw-offset": str(meta["offset"]), "x-sw-scale": str(meta["scale"]),
-                                 "x-sw-window": f"{meta['window'][0]},{meta['window'][1]}"})
+                                 "x-sw-window": f"{meta['window'][0]},{meta['window'][1]}",
+                                 "x-sw-window-brain": ",".join(str(v) for v in meta.get("window_brain", meta["window"]))})
 
     async def run_case(req):
         cid = cid_of(req)
@@ -468,7 +469,7 @@ def create_app(settings: Settings, token: str, port: int) -> Starlette:
 
     async def demo(req):
         b = await body_json(req)
-        kind = "fetal" if b.get("kind") == "fetal" else "adult"
+        kind = b.get("kind") if b.get("kind") in ("fetal", "flair") else "adult"
         cid = f"DEMO-{kind.upper()}-{secrets.token_hex(2).upper()}"
         store.create(cid, simulated=True)
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sliceweave"
-version = "1.0.0"
+version = "1.1.0"
 description = "Super-resolution reconstruction of 3-plane 2-D HASTE stacks into an isotropic volume (adult, paediatric and fetal brain MRI). Research use only."
 readme = "README.md"
 requires-python = ">=3.10"

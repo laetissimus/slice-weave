@@ -11,9 +11,9 @@
    "ncc": 0.8346
   },
   "srr": {
-   "psnr_db": 22.45,
-   "ssim": 0.8069,
-   "ncc": 0.9019
+   "psnr_db": 23.21,
+   "ssim": 0.8165,
+   "ncc": 0.9197
   },
   "motion_between_series": [
    {
@@ -29,8 +29,8 @@
     "residual_mm": 0.02
    }
   ],
-  "seconds": 119.5,
-  "recon_seconds": 85.0,
+  "seconds": 76.9,
+  "recon_seconds": 53.0,
   "grid": [
    180,
    192,
@@ -49,9 +49,9 @@
    "ncc": 0.894
   },
   "srr": {
-   "psnr_db": 25.76,
-   "ssim": 0.8953,
-   "ncc": 0.9416
+   "psnr_db": 25.78,
+   "ssim": 0.8973,
+   "ncc": 0.9446
   },
   "motion_between_series": [
    {
@@ -67,8 +67,8 @@
     "residual_mm": 0.159
    }
   ],
-  "seconds": 168.7,
-  "recon_seconds": 117.2,
+  "seconds": 101.5,
+  "recon_seconds": 59.6,
   "grid": [
    180,
    216,
@@ -92,7 +92,7 @@
    "slice_pose_error_mm_after": 4.02,
    "slices_used": 119,
    "slices": 169,
-   "seconds": 24.0
+   "seconds": 16.9
   },
   "sliceweave": {
    "srr": {
@@ -109,7 +109,7 @@
    "slice_pose_error_mm_after": 1.93,
    "slices_used": 155,
    "slices": 169,
-   "seconds": 201.6
+   "seconds": 209.3
   },
   "true_motion_upper_bound": {
    "srr": {
@@ -118,7 +118,7 @@
     "ncc": 0.8853
    }
   },
-  "seconds": 282.2
+  "seconds": 282.3
  },
  "real-fetal": {
   "stacks": [
@@ -136,7 +136,11 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "AX",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.607,
+     1.125
+    ]
    },
    {
     "name": "AX run-2",
@@ -152,7 +156,11 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "AX",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.607,
+     1.125
+    ]
    },
    {
     "name": "COR run-3",
@@ -168,7 +176,11 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "COR",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.125,
+     1.607
+    ]
    },
    {
     "name": "COR run-4",
@@ -184,7 +196,11 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "COR",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.125,
+     1.607
+    ]
    },
    {
     "name": "SAG run-5",
@@ -200,7 +216,11 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "SAG",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.607,
+     1.125
+    ]
    },
    {
     "name": "SAG run-6",
@@ -216,13 +236,17 @@
     "thickness_mm": 3.0,
     "spacing_mm": 3.3,
     "plane": "SAG",
-    "has_mask": true
+    "has_mask": true,
+    "resolution_mm": [
+     1.607,
+     1.125
+    ]
    }
   ],
   "reference": "COR run-3",
   "no_motion_correction": {
-   "median_slice_ncc": 0.694,
-   "p10_slice_ncc": 0.5783,
+   "median_slice_ncc": 0.6866,
+   "p10_slice_ncc": 0.5656,
    "slices_used": 126,
    "slices": 130,
    "stack_motion_deg_mm": [
@@ -257,46 +281,489 @@
      0.0
     ]
    ],
-   "seconds": 15.2
+   "seconds": 16.8
   },
   "sliceweave": {
-   "median_slice_ncc": 0.9727,
-   "p10_slice_ncc": 0.9551,
+   "median_slice_ncc": 0.969,
+   "p10_slice_ncc": 0.9543,
    "slices_used": 130,
    "slices": 130,
    "stack_motion_deg_mm": [
     [
      "AX run-1",
-     4.372,
-     6.979
+     4.237,
+     6.959
     ],
     [
      "AX run-2",
-     6.733,
-     6.234
+     6.443,
+     6.203
     ],
     [
      "COR run-3",
-     0.122,
-     0.04
+     0.28,
+     0.044
     ],
     [
      "COR run-4",
-     3.593,
-     1.948
+     3.47,
+     1.957
     ],
     [
      "SAG run-5",
-     20.485,
-     6.615
+     20.254,
+     6.583
     ],
     [
      "SAG run-6",
-     20.646,
-     8.098
+     20.724,
+     8.074
     ]
    ],
-   "seconds": 106.1
+   "seconds": 98.6
   }
+ },
+ "phantom-flair": {
+  "single_axial_stack": {
+   "psnr_db": 15.7,
+   "ssim": 0.5104,
+   "ncc": 0.7006,
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.157,
+    "4-5 mm": 0.499,
+    "6-8 mm": 0.718
+   }
+  },
+  "average": {
+   "psnr_db": 16.11,
+   "ssim": 0.5945,
+   "ncc": 0.7407,
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.093,
+    "4-5 mm": 0.532,
+    "6-8 mm": 0.705
+   }
+  },
+  "srr": {
+   "psnr_db": 17.91,
+   "ssim": 0.6789,
+   "ncc": 0.8402,
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.382,
+    "4-5 mm": 1.235,
+    "6-8 mm": 1.126
+   }
+  },
+  "srr_pixel_psf": {
+   "psnr_db": 18.35,
+   "ssim": 0.6955,
+   "ncc": 0.8521,
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.35,
+    "4-5 mm": 1.181,
+    "6-8 mm": 1.141
+   }
+  },
+  "srr_noise_calibrated_alpha": {
+   "psnr_db": 18.4,
+   "ssim": 0.7346,
+   "ncc": 0.8534,
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.242,
+    "4-5 mm": 1.19,
+    "6-8 mm": 1.144
+   }
+  },
+  "truth_on_output_grid": {
+   "lesion_contrast_recovery": {
+    "2-3 mm": 0.899,
+    "4-5 mm": 1.0,
+    "6-8 mm": 1.0
+   }
+  },
+  "noise_rel_estimated": [
+   0.0438,
+   0.0448,
+   0.0438
+  ],
+  "alpha": 1.03176,
+  "alpha_motion_correction": 2.94788,
+  "motion_between_series": [
+   {
+    "true_deg": 3.62,
+    "true_mm": 0.76,
+    "residual_deg": 0.098,
+    "residual_mm": 0.147
+   },
+   {
+    "true_deg": 2.81,
+    "true_mm": 2.3,
+    "residual_deg": 0.049,
+    "residual_mm": 0.076
+   }
+  ],
+  "recon_seconds": 57.6,
+  "seconds": 232.0
+ },
+ "cycles": {
+  "fetal_slice_to_volume": [
+   {
+    "cycles": 1,
+    "srr": {
+     "psnr_db": 18.43,
+     "ssim": 0.4827,
+     "ncc": 0.5478
+    },
+    "slice_pose_error_mm": 3.28,
+    "slices_used": 84,
+    "slices": 169,
+    "seconds": 101.2
+   },
+   {
+    "cycles": 2,
+    "srr": {
+     "psnr_db": 21.56,
+     "ssim": 0.6722,
+     "ncc": 0.751
+    },
+    "slice_pose_error_mm": 2.65,
+    "slices_used": 149,
+    "slices": 169,
+    "seconds": 138.1
+   },
+   {
+    "cycles": 3,
+    "srr": {
+     "psnr_db": 22.2,
+     "ssim": 0.7113,
+     "ncc": 0.7884
+    },
+    "slice_pose_error_mm": 2.4,
+    "slices_used": 151,
+    "slices": 169,
+    "seconds": 151.4
+   },
+   {
+    "cycles": 4,
+    "srr": {
+     "psnr_db": 22.48,
+     "ssim": 0.7267,
+     "ncc": 0.8041
+    },
+    "slice_pose_error_mm": 2.23,
+    "slices_used": 151,
+    "slices": 169,
+    "seconds": 163.6
+   },
+   {
+    "cycles": 6,
+    "srr": {
+     "psnr_db": 22.91,
+     "ssim": 0.7483,
+     "ncc": 0.8242
+    },
+    "slice_pose_error_mm": 1.93,
+    "slices_used": 155,
+    "slices": 169,
+    "seconds": 202.9
+   },
+   {
+    "cycles": 8,
+    "srr": {
+     "psnr_db": 23.28,
+     "ssim": 0.7648,
+     "ncc": 0.8405
+    },
+    "slice_pose_error_mm": 1.61,
+    "slices_used": 155,
+    "slices": 169,
+    "seconds": 204.0
+   }
+  ],
+  "adult_between_series": [
+   {
+    "cycles": 0,
+    "srr": {
+     "psnr_db": 22.45,
+     "ssim": 0.8069,
+     "ncc": 0.9019
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 53.8
+   },
+   {
+    "cycles": 1,
+    "srr": {
+     "psnr_db": 22.45,
+     "ssim": 0.8069,
+     "ncc": 0.9019
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 60.4
+   },
+   {
+    "cycles": 2,
+    "srr": {
+     "psnr_db": 22.38,
+     "ssim": 0.8042,
+     "ncc": 0.9002
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 77.5
+   },
+   {
+    "cycles": 3,
+    "srr": {
+     "psnr_db": 22.33,
+     "ssim": 0.8036,
+     "ncc": 0.8992
+    },
+    "residual_deg_max": 0.031,
+    "residual_mm_max": 0.031,
+    "seconds": 95.3
+   }
+  ]
+ },
+ "cortex": {
+  "protocol": "AX, COR, SAG; 0.6 x 0.6 mm in-plane, 3 mm slices, no gap; bias 15 %; motion between series; output 1.0 mm unless stated",
+  "final_alpha_factor": {
+   "adult": 0.25,
+   "flair": 0.35,
+   "fetal": 1.0
+  },
+  "final_weight": [
+   {
+    "contrast": "adult",
+    "noise": 0.015,
+    "noise_estimated": 0.016,
+    "alpha_noise_calibrated": 1.14,
+    "by_factor": {
+     "1.0": {
+      "psnr_db": 27.47,
+      "ssim": 0.9499,
+      "gm_wm_contrast": 1.019,
+      "sulcal_csf_contrast": 0.966,
+      "cortex_detail_corr": 0.968
+     },
+     "0.5": {
+      "psnr_db": 27.83,
+      "ssim": 0.9594,
+      "gm_wm_contrast": 1.021,
+      "sulcal_csf_contrast": 1.014,
+      "cortex_detail_corr": 0.974
+     },
+     "0.35": {
+      "psnr_db": 27.87,
+      "ssim": 0.9613,
+      "gm_wm_contrast": 1.021,
+      "sulcal_csf_contrast": 1.027,
+      "cortex_detail_corr": 0.976
+     },
+     "0.25": {
+      "psnr_db": 27.88,
+      "ssim": 0.9619,
+      "gm_wm_contrast": 1.02,
+      "sulcal_csf_contrast": 1.038,
+      "cortex_detail_corr": 0.976
+     },
+     "0.15": {
+      "psnr_db": 27.74,
+      "ssim": 0.9604,
+      "gm_wm_contrast": 1.021,
+      "sulcal_csf_contrast": 1.049,
+      "cortex_detail_corr": 0.976
+     }
+    }
+   },
+   {
+    "contrast": "adult",
+    "noise": 0.03,
+    "noise_estimated": 0.0304,
+    "alpha_noise_calibrated": 2.074,
+    "by_factor": {
+     "1.0": {
+      "psnr_db": 26.68,
+      "ssim": 0.9301,
+      "gm_wm_contrast": 1.023,
+      "sulcal_csf_contrast": 0.896,
+      "cortex_detail_corr": 0.955
+     },
+     "0.5": {
+      "psnr_db": 27.39,
+      "ssim": 0.9483,
+      "gm_wm_contrast": 1.027,
+      "sulcal_csf_contrast": 0.96,
+      "cortex_detail_corr": 0.967
+     },
+     "0.35": {
+      "psnr_db": 27.61,
+      "ssim": 0.9533,
+      "gm_wm_contrast": 1.028,
+      "sulcal_csf_contrast": 0.987,
+      "cortex_detail_corr": 0.971
+     },
+     "0.25": {
+      "psnr_db": 27.72,
+      "ssim": 0.9556,
+      "gm_wm_contrast": 1.029,
+      "sulcal_csf_contrast": 1.008,
+      "cortex_detail_corr": 0.973
+     },
+     "0.15": {
+      "psnr_db": 27.67,
+      "ssim": 0.955,
+      "gm_wm_contrast": 1.029,
+      "sulcal_csf_contrast": 1.027,
+      "cortex_detail_corr": 0.975
+     }
+    }
+   },
+   {
+    "contrast": "adult",
+    "noise": 0.06,
+    "noise_estimated": 0.0591,
+    "alpha_noise_calibrated": 3.94,
+    "by_factor": {
+     "1.0": {
+      "psnr_db": 25.49,
+      "ssim": 0.8951,
+      "gm_wm_contrast": 1.021,
+      "sulcal_csf_contrast": 0.8,
+      "cortex_detail_corr": 0.932
+     },
+     "0.5": {
+      "psnr_db": 26.5,
+      "ssim": 0.9265,
+      "gm_wm_contrast": 1.03,
+      "sulcal_csf_contrast": 0.887,
+      "cortex_detail_corr": 0.953
+     },
+     "0.35": {
+      "psnr_db": 26.87,
+      "ssim": 0.9356,
+      "gm_wm_contrast": 1.033,
+      "sulcal_csf_contrast": 0.923,
+      "cortex_detail_corr": 0.96
+     },
+     "0.25": {
+      "psnr_db": 27.11,
+      "ssim": 0.9405,
+      "gm_wm_contrast": 1.034,
+      "sulcal_csf_contrast": 0.952,
+      "cortex_detail_corr": 0.965
+     },
+     "0.15": {
+      "psnr_db": 27.21,
+      "ssim": 0.9407,
+      "gm_wm_contrast": 1.034,
+      "sulcal_csf_contrast": 0.988,
+      "cortex_detail_corr": 0.968
+     }
+    }
+   },
+   {
+    "contrast": "infant",
+    "noise": 0.03,
+    "noise_estimated": 0.0265,
+    "alpha_noise_calibrated": 1.825,
+    "by_factor": {
+     "1.0": {
+      "psnr_db": 27.03,
+      "ssim": 0.9204,
+      "gm_wm_contrast": 0.503,
+      "sulcal_csf_contrast": 0.882,
+      "cortex_detail_corr": 0.957
+     },
+     "0.5": {
+      "psnr_db": 27.56,
+      "ssim": 0.9384,
+      "gm_wm_contrast": 0.583,
+      "sulcal_csf_contrast": 0.947,
+      "cortex_detail_corr": 0.967
+     },
+     "0.35": {
+      "psnr_db": 27.68,
+      "ssim": 0.9423,
+      "gm_wm_contrast": 0.617,
+      "sulcal_csf_contrast": 0.975,
+      "cortex_detail_corr": 0.97
+     },
+     "0.25": {
+      "psnr_db": 27.68,
+      "ssim": 0.9428,
+      "gm_wm_contrast": 0.644,
+      "sulcal_csf_contrast": 0.991,
+      "cortex_detail_corr": 0.972
+     },
+     "0.15": {
+      "psnr_db": 27.59,
+      "ssim": 0.939,
+      "gm_wm_contrast": 0.687,
+      "sulcal_csf_contrast": 1.01,
+      "cortex_detail_corr": 0.972
+     }
+    }
+   }
+  ],
+  "voxel_size": [
+   {
+    "voxel_mm": 1.5,
+    "psnr_db": 25.94,
+    "ssim": 0.9425,
+    "gm_wm_contrast": 1.05,
+    "sulcal_csf_contrast": 0.922,
+    "cortex_detail_corr": 0.911,
+    "seconds": 31
+   },
+   {
+    "voxel_mm": 1.0,
+    "psnr_db": 27.72,
+    "ssim": 0.9556,
+    "gm_wm_contrast": 1.029,
+    "sulcal_csf_contrast": 1.008,
+    "cortex_detail_corr": 0.973,
+    "seconds": 96
+   },
+   {
+    "voxel_mm": 0.8,
+    "psnr_db": 27.71,
+    "ssim": 0.9417,
+    "gm_wm_contrast": 1.026,
+    "sulcal_csf_contrast": 1.001,
+    "cortex_detail_corr": 0.977,
+    "seconds": 131
+   }
+  ],
+  "slice_motion": [
+   {
+    "correction": "between series, 1 cycle",
+    "psnr_db": 18.75,
+    "ssim": 0.5865,
+    "gm_wm_contrast": 0.973,
+    "sulcal_csf_contrast": 0.491,
+    "cortex_detail_corr": 0.48,
+    "slice_pose_error_mm_before": 2.56,
+    "slice_pose_error_mm_after": 1.83,
+    "slices_used": 126,
+    "slices": 126,
+    "seconds": 125
+   },
+   {
+    "correction": "slice-to-volume, 6 cycles",
+    "psnr_db": 21.82,
+    "ssim": 0.9107,
+    "gm_wm_contrast": 1.203,
+    "sulcal_csf_contrast": 0.866,
+    "cortex_detail_corr": 0.929,
+    "slice_pose_error_mm_before": 2.56,
+    "slice_pose_error_mm_after": 0.23,
+    "slices_used": 126,
+    "slices": 126,
+    "seconds": 522
+   }
+  ]
  }
 }
