@@ -89,7 +89,7 @@ def ingest(store: CaseStore, case_id: str, paths: list, tmpdir: Path, log=None) 
         log(f"imported {entries[-1]['label']}: {st.shape[0]}x{st.shape[1]}x{st.nz}, pixel {dx:.2f} mm, "
             f"thickness {st.thickness:.2f} mm" + (" (HASTE-like)" if haste else "") + (" (FLAIR)" if flair else ""))
     new = entries[n0:]
-    # a reconstruction combines one kind of series: single-shot T2 when recognised, else 2-D FLAIR
+    # a reconstruction combines one kind of series: single-shot T2 when recognized, else 2-D FLAIR
     n_ss = sum(e["haste_like"] for e in new)
     n_fl = sum(e.get("flair_like", False) for e in new)
     flair_case = n_fl >= 2 and n_ss < 2 and not fetal_hint
@@ -139,7 +139,7 @@ def _attach_mask(store: CaseStore, case_id: str, entries: list, path: Path, log)
 
 
 def motion_score(st: Stack, fg: np.ndarray | None = None) -> float:
-    """Median correlation of neighbouring slices in the central part of the field of view:
+    """Median correlation of neighboring slices in the central part of the field of view:
     lower when the subject moved between slices (interleaved acquisition)."""
     nx, ny, nz = st.shape
     sl = (slice(nx // 4, 3 * nx // 4), slice(ny // 4, 3 * ny // 4))
@@ -163,7 +163,7 @@ def suggest_reference(stacks: list[Stack], entries: list[dict], mode: str) -> st
     scores = {e["id"]: motion_score(st, st.mask) for e, st in cand}
     best = max(scores, key=scores.get)
     if mode != "fetal":
-        # adults and FLAIR: the axial stack (the usual reading plane) unless none is included; the neighbour
+        # adults and FLAIR: the axial stack (the usual reading plane) unless none is included; the neighbor
         # correlation is not comparable between planes of a still head
         ax = [e["id"] for e, _ in cand if e["plane"] == "AX"]
         if ax:

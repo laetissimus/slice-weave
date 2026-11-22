@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sliceweave"
-version = "1.1.0"
-description = "Super-resolution reconstruction of 3-plane 2-D HASTE stacks into an isotropic volume (adult, paediatric and fetal brain MRI). Research use only."
+dynamic = ["version"]
+description = "Super-resolution reconstruction of 3-plane 2-D MRI stacks (single-shot T2 / HASTE, 2-D FLAIR) into an isotropic volume (adult, pediatric and fetal brain MRI). Research use only."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -23,6 +23,9 @@ validation = ["matplotlib>=3.7"]
 
 [project.scripts]
 sliceweave = "sliceweave.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "sliceweave.config.BASE_VERSION"}
 
 [tool.setuptools]
 packages = ["sliceweave"]

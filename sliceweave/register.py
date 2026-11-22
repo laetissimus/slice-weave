@@ -1,12 +1,12 @@
 """Rigid stack-to-volume and slice-to-volume registration.
 
 A set of pixels (one slice, or all slices of a stack) with world positions p and values y is
-aligned to the current volume by finding a rigid transform D (rotation about the pixels' centre
-and translation) that minimises
+aligned to the current volume by finding a rigid transform D (rotation about the pixels' center
+and translation) that minimizes
 
     sum_p w_p ( y_p - a * V(D p) - b )^2
 
-with a, b re-fitted at every step (so the cost is equivalent to normalised cross-correlation)
+with a, b re-fitted at every step (so the cost is equivalent to normalized cross-correlation)
 and V the volume blurred with the slices' point-spread function (plus extra smoothing at coarse
 levels). Gauss-Newton steps with Marquardt damping and step halving; Huber weights on the
 residuals make the fit robust to partly corrupted slices.

@@ -100,7 +100,7 @@ class Jobs:
                 for v in st["steps"].values():
                     v["status"] = "done"
             except Exception as e:  # noqa: BLE001 - surfaced to the UI
-                st.update(status="cancelled" if str(e) == "cancelled" else "error", error=str(e),
+                st.update(status="canceled" if str(e) == "canceled" else "error", error=str(e),
                           trace=traceback.format_exc()[-2000:])
                 for v in st["steps"].values():
                     if v["status"] == "running":
@@ -248,8 +248,8 @@ def create_app(settings: Settings, token: str, port: int) -> Starlette:
                 name = Path((item.filename or "").replace("\\", "/")).name
                 low = name.lower()
                 if low.endswith((".nii", ".nii.gz", ".json")):
-                    # keep a sanitised base name so that a JSON sidecar pairs with its NIfTI and
-                    # "mask" files are recognised; the staging folder is deleted after import
+                    # keep a sanitized base name so that a JSON sidecar pairs with its NIfTI and
+                    # "mask" files are recognized; the staging folder is deleted after import
                     safe = re.sub(r"\d{5,}", "n", re.sub(r"[^A-Za-z0-9._-]", "_", name))[:80]
                     target = dest / safe
                     k = 1

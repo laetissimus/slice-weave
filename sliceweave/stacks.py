@@ -1,7 +1,7 @@
 """2-D multi-slice stacks (one per acquired HASTE series) with per-slice geometry.
 
 A stack keeps every slice's own position (``slice_aff[s]`` maps pixel (i, j, 0, 1) of slice s
-to world millimetres, RAS+), so uneven gaps and interleaved packets are never resampled
+to world millimeters, RAS+), so uneven gaps and interleaved packets are never resampled
 before reconstruction. ``thickness`` is the nominal slice thickness (it sets the
 through-plane point-spread function), which can differ from the slice spacing (gap or overlap).
 """

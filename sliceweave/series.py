@@ -246,7 +246,7 @@ def _add_dicom(series: dict, ds: dicom.Dataset, path: str):
         reject = "BurnedInAnnotation = YES"
     photo = _s(ds.PhotometricInterpretation).upper()
     if photo and not photo.startswith("MONOCHROME"):
-        reject = f"colour pixels ({photo})"
+        reject = f"color pixels ({photo})"
     if dicom.PIXEL_TAG not in ds:
         reject = reject or "no pixel data"
     rows, cols = int(ds.Rows or 0), int(ds.Columns or 0)
@@ -545,7 +545,7 @@ def nifti_stack(path: Path, name: str = "") -> Stack:
             if isinstance(j.get("SliceThickness"), (int, float)) and j["SliceThickness"] > 0:
                 thick = float(j["SliceThickness"])
                 meta["thickness_from"] = "JSON sidecar"
-            # technical text used only to recognise single-shot / FLAIR series and fetal exams (not stored)
+            # technical text used only to recognize single-shot / FLAIR series and fetal exams (not stored)
             meta["sidecar_text"] = " ".join(str(j.get(k, "")) for k in (
                 "SeriesDescription", "ProtocolName", "SequenceName", "PulseSequenceDetails", "ProcedureStepDescription",
                 "BodyPartExamined", "ScanningSequence", "SequenceVariant") if isinstance(j.get(k, ""), str))

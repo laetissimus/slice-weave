@@ -1,6 +1,6 @@
 """Minimal DICOM writer (explicit VR little endian).
 
-Used for (1) the research-labelled derived-series export and (2) building synthetic test
+Used for (1) the research-labeled derived-series export and (2) building synthetic test
 series. A de-identified export carries the coded case ID as PatientID and an empty
 PatientName; an export "attached to the original study" copies the patient and study
 attributes of a DICOM file the user supplies at export time (nothing is stored).

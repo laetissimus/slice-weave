@@ -1,7 +1,7 @@
 """Synthetic test data: procedural head phantoms and simulated 2-D HASTE-like stacks.
 
 Nothing here comes from a patient. The phantoms are generated from formulas, so the self-test
-and the demo run without any downloaded data. Simulated stacks are labelled SIMULATED.
+and the demo run without any downloaded data. Simulated stacks are labeled SIMULATED.
 
 Stacks are simulated from a high-resolution "truth" volume by sampling the volume at each pixel
 with a slice profile that is deliberately *not* the reconstruction model (a box-shaped slice
@@ -19,7 +19,7 @@ from .stacks import Stack, plane_label
 # T2-weighted (HASTE-like) relative intensities
 T2 = {"bg": 0.0, "scalp": 0.55, "skull": 0.05, "csf": 1.0, "gm": 0.52, "wm": 0.38, "deep": 0.42,
       "fetal_wm": 0.62, "fetal_gm": 0.36, "fluid": 0.95, "uterus": 0.45}
-# FLAIR: CSF suppressed, grey matter brighter than white matter, lesions bright
+# FLAIR: CSF suppressed, gray matter brighter than white matter, lesions bright
 FLAIR = {"bg": 0.0, "scalp": 0.55, "skull": 0.05, "csf": 0.06, "gm": 0.62, "wm": 0.45, "deep": 0.55, "lesion": 0.95}
 LESION_RADII_MM = (1.0, 1.0, 1.25, 1.5, 1.5, 2.0, 2.0, 2.5, 2.5, 3.0, 3.0, 4.0)
 
@@ -42,7 +42,7 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
     """Return (data, affine, info): a T2-weighted-like head phantom generated from formulas.
 
     Adult: 150 mm head (scalp, skull, CSF, folded cortex with winding sulci, white matter,
-    deep grey nuclei, ventricles, cerebellum, brainstem, interhemispheric fissure).
+    deep gray nuclei, ventricles, cerebellum, brainstem, interhemispheric fissure).
     Fetal (about 30 weeks): 80 mm brain with shallow folding, a thin dark cortical ribbon,
     bright unmyelinated white matter, asymmetric ventricles, cerebellum and brainstem, inside
     amniotic fluid and a textured uterine background.
@@ -83,7 +83,7 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
     sulci = brain & (np.abs(f2) < (0.16 if adult else 0.10)) & (R > (0.72 if adult else 0.86))
     vol[sulci] = csf
     vol[brain & (np.abs(X) < 0.9 * sc + 0.4) & (Z > -18 * sc)] = csf     # interhemispheric fissure
-    # deep grey nuclei, ventricles (asymmetric), cerebellum, brainstem
+    # deep gray nuclei, ventricles (asymmetric), cerebellum, brainstem
     for sx in (-1, 1):
         dg = (((X - sx * 16 * sc) / (11 * sc)) ** 2 + ((Y + 2 * sc) / (17 * sc)) ** 2 + ((Z + 2 * sc) / (11 * sc)) ** 2) < 1
         vol[dg] = tab["deep"] if adult else gm * 1.15
@@ -122,7 +122,7 @@ def phantom_head(kind: str = "adult", spacing: float = 0.6, seed: int = 7) -> tu
 
 def _add_lesions(vol, c, spacing, wm, rng, R) -> list[dict]:
     """Bright ellipsoidal white-matter lesions (axis ratio up to 1.6, random orientation), at
-    least 12 mm apart, centred in white matter."""
+    least 12 mm apart, centered in white matter."""
     from .geometry import rotvec_to_matrix
     n = len(c)
     out = []

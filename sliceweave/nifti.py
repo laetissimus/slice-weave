@@ -3,7 +3,7 @@
 Conventions used throughout SliceWeave
 -----------------------------------------
 * ``data`` is a numpy array indexed ``[i, j, k]`` (NIfTI order).
-* ``affine`` maps voxel indices to world millimetres in RAS+ (NIfTI convention).
+* ``affine`` maps voxel indices to world millimeters in RAS+ (NIfTI convention).
 * Headers of input files are never copied to outputs: every file this module
   writes gets a fresh header whose ``descrip`` field holds only what the caller
   passes (never names, IDs or dates).
@@ -54,7 +54,7 @@ def _open_bytes(path: Path) -> bytes:
 def _quat_to_affine(b, c, d, qfac, pix, offs) -> np.ndarray:
     a2 = 1.0 - (b * b + c * c + d * d)
     a = np.sqrt(a2) if a2 > 1e-7 else 0.0
-    if a2 <= 1e-7:  # renormalise as in nifti1_io
+    if a2 <= 1e-7:  # renormalize as in nifti1_io
         n = np.sqrt(b * b + c * c + d * d)
         b, c, d = b / n, c / n, d / n
     R = np.array([
@@ -117,7 +117,7 @@ def read_nifti(path, dtype=np.float32) -> Volume:
     if ndim > 3 and int(np.prod(shape[3:])) > 1:
         meta["warning"] = "4-D file: only the first volume was read"
         meta["n_volumes"] = int(np.prod(shape[3:]))
-    # free-text description field; read only so known tools can be recognised, never stored
+    # free-text description field; read only so known tools can be recognized, never stored
     d0, d1 = (148, 228) if sizeof_hdr == 348 else (240, 320)
     meta["descrip"] = raw[d0:d1].split(b"\x00", 1)[0].decode("ascii", "replace")
     if scl_slope not in (0.0, 1.0) or (scl_inter != 0.0 and np.isfinite(scl_inter)):

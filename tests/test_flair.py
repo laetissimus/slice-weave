@@ -18,14 +18,14 @@ def _s(desc="", seq="", ti=None, te=None):
     return SimpleNamespace(text=lambda: desc, sequence=seq, ti=ti, te=te)
 
 
-def test_flair_recognised_by_name_sequence_or_timing():
+def test_flair_recognized_by_name_sequence_or_timing():
     assert series.looks_like_flair(_s("AX T2 FLAIR"))
     assert series.looks_like_flair(_s("t2_tirm_tra_dark-fluid"))
     assert series.looks_like_flair(_s("ax brain", "*tir2d1_21", ti=2500, te=86))
     assert series.looks_like_flair(_s("Ax T2 IR", ti=2400, te=120))        # long TI and long TE
     assert not series.looks_like_flair(_s("t2_haste_tra", "*h2d1_256", te=90))
     assert not series.looks_like_flair(_s("AX STIR", ti=160, te=40))        # short-TI inversion recovery
-    # T1-FLAIR is also multi-shot inversion recovery: recognised by name and handled by the same preset
+    # T1-FLAIR is also multi-shot inversion recovery: recognized by name and handled by the same preset
     assert series.looks_like_flair(_s("T1 FLAIR", ti=800, te=10))
 
 

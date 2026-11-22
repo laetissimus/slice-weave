@@ -87,19 +87,40 @@ def resample(vol: np.ndarray, src: Grid, dst: Grid, order: int = 1) -> np.ndarra
 
 
 def brain_window(pos: np.ndarray, full_hi: float) -> list[float]:
-    """Window on the brain tissue: centred on the most common foreground intensity (parenchyma), so
-    that grey and white matter spread over the grey levels and CSF / fat are near white."""
+    """Window on the brain tissue, so that gray and white matter spread over the gray levels and
+    CSF / fat are near white. The tissue intensities above the background are split into three
+    classes (two-threshold Otsu): the lower two are white and gray matter (either order), the upper one
+    CSF and fat. The window runs one gray-white difference below the lower class to one above the
+    middle class."""
     if pos.size < 1000 or full_hi <= 0:
         return [0.0, float(full_hi)]
     v = pos[pos > 0.12 * full_hi]
     if v.size < 1000:
         return [0.0, float(full_hi)]
-    if v.size > 2_000_000:
-        v = v[:: v.size // 2_000_000 + 1]
-    h, e = np.histogram(v, bins=200, range=(0.0, float(full_hi)))
-    h = np.convolve(h.astype(float), np.ones(7) / 7, mode="same")
-    peak = 0.5 * (e[int(np.argmax(h))] + e[int(np.argmax(h)) + 1])
-    lo, hi = 0.4 * peak, min(1.8 * peak, float(full_hi))
+    if v.size > 200_000:
+        v = v[:: v.size // 200_000 + 1]
+    # three classes by two-threshold Otsu on the histogram (global optimum of the between-class variance)
+    h, e = np.histogram(v, bins=128, range=(0.12 * float(full_hi), float(full_hi)))
+    m = 0.5 * (e[:-1] + e[1:])
+    P, S = np.cumsum(h).astype(float), np.cumsum(h * m)
+    n, tot = P[-1], S[-1]
+    t1, t2 = np.meshgrid(np.arange(126), np.arange(127), indexing="ij")
+    ok = t2 > t1
+    w0, s0 = P[t1], S[t1]
+    w1, s1 = P[t2] - P[t1], S[t2] - S[t1]
+    w2, s2 = n - P[t2], tot - S[t2]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        score = np.where(ok & (w0 > 0) & (w1 > 0) & (w2 > 0), s0 ** 2 / w0 + s1 ** 2 / w1 + s2 ** 2 / w2, -np.inf)
+    a, b = np.unravel_index(int(np.argmax(score)), score.shape)
+    c = np.array([S[a] / max(P[a], 1), (S[b] - S[a]) / max(P[b] - P[a], 1), (tot - S[b]) / max(n - P[b], 1)])
+    c = np.sort(c)
+    d = c[1] - c[0]
+    lo, hi = max(c[0] - d, 0.0), min(c[1] + d, float(full_hi))
+    if hi - lo < 0.05 * full_hi:  # no usable tissue classes: the most common intensity, as before
+        h, e = np.histogram(v, bins=200, range=(0.0, float(full_hi)))
+        k = int(np.argmax(np.convolve(h.astype(float), np.ones(7) / 7, mode="same")))
+        peak = 0.5 * (e[k] + e[k + 1])
+        lo, hi = 0.4 * peak, min(1.8 * peak, float(full_hi))
     return [float(lo), float(max(hi, lo + 1e-6))]
 
 

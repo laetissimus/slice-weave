@@ -8,3 +8,4 @@ dist/
 *.nii
 *.nii.gz
 !tests/data/**/*.nii.gz
+sliceweave/_version.py

@@ -2,7 +2,7 @@
 
 Steps (each reported to the progress callback):
 
-1. prepare     crop stacks to the region of interest, bin very small pixels, normalise
+1. prepare     crop stacks to the region of interest, bin very small pixels, normalize
                intensities, estimate noise, build masks
 2. stacks      register every stack to the reference stack (rigid, coarse to fine)
 3. reconstruct first super-resolution volume from all stacks
@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 import numpy as np
 from scipy import ndimage as ndi
 
+from . import denoise
 from . import operators as ops
 from .geometry import (Grid, about_center, apply, make_grid, matrix_to_rotvec, mean_rigid, nearest_ras_axes,
                        rigid, rigid_params, rotvec_to_matrix)
@@ -34,6 +35,7 @@ STEPS = [("prepare", "Prepare stacks"), ("stacks", "Register stacks"), ("reconst
 # ---------------------------------------------------------------------- settings
 MODES = ("adult", "fetal", "flair")
 MODE_LABELS = {"adult": "T2 single-shot", "fetal": "fetal T2 single-shot", "flair": "FLAIR"}
+MODE_NAMES = {"adult": "adult/pediatric", "flair": "2-D FLAIR (adult/pediatric)", "fetal": "fetal"}
 FLAIR_SLICE_MSG = ("2-D FLAIR is a multi-shot acquisition: each slice is built from echoes collected over the "
                    "whole series, so it has no single position to correct. Use motion correction 'between series' "
                    "(or none); exclude a series that is degraded by motion.")
@@ -41,12 +43,12 @@ FLAIR_SLICE_MSG = ("2-D FLAIR is a multi-shot acquisition: each slice is built f
 
 @dataclass
 class Params:
-    mode: str = "adult"              # adult (single-shot T2) | fetal | flair (2-D multi-shot FLAIR, adult/paediatric)
+    mode: str = "adult"              # adult (single-shot T2) | fetal | flair (2-D multi-shot FLAIR, adult/pediatric)
     resolution: float = 1.0          # output voxel size (mm)
     reference: int = 0               # index into the stack list
     motion: str = "stack"            # none | stack | slice
     cycles: int = 2                  # motion-correction cycles
-    alpha: float | None = None       # regularisation weight; None = automatic from the noise level
+    alpha: float | None = None       # regularization weight; None = automatic from the noise level
     regularizer: str = "huber"       # huber (edge-preserving) | tikhonov
     outlier_rejection: bool = True
     bias_correction: bool = True
@@ -57,17 +59,21 @@ class Params:
     psf_through: float = 1.0         # scales the through-plane PSF width (1 = FWHM equal to the slice thickness)
     max_voxels: int = 30_000_000
     mask_output: bool = True
-    temporal_smoothing: bool = True  # median of each slice's motion with its neighbours in acquisition time
+    temporal_smoothing: bool = True  # median of each slice's motion with its neighbors in acquisition time
+    denoise: bool = True  # non-local means on the final volume (with a weaker final weight)
+    denoise_strength: float = 1.5
 
     @classmethod
     def preset(cls, mode: str, **kw) -> "Params":
         if mode == "fetal":
+            # denoising off: on the fetal phantom it lowered SSIM (docs/VALIDATION.md, "Denoising")
             p = cls(mode="fetal", resolution=0.8, motion="slice", cycles=6, ncc_threshold=0.5,
-                    cycle_iterations=10, final_iterations=30)
+                    cycle_iterations=10, final_iterations=30, denoise=False)
         elif mode == "flair":
             # multi-shot: a slice is not a snapshot, so only motion between series is corrected
+            # denoising off: on the FLAIR phantom it lowered the contrast of 2-3 mm lesions
             p = cls(mode="flair", resolution=1.0, motion="stack", cycles=1, ncc_threshold=0.6,
-                    temporal_smoothing=False)
+                    temporal_smoothing=False, denoise=False)
         else:
             p = cls(mode="adult", resolution=1.0, motion="stack", cycles=1, ncc_threshold=0.6)
         for k, v in kw.items():
@@ -81,9 +87,9 @@ class Params:
 
 @dataclass
 class ROI:
-    """Reconstruction region: a box or ellipsoid centred on ``center`` with half-sizes ``half``
+    """Reconstruction region: a box or ellipsoid centered on ``center`` with half-sizes ``half``
     (mm) along the grid axes ``R``. ``offsets[k]``: where the region is in stack k if the subject
-    moved between stacks (world shift added to the centre for that stack's initial alignment)."""
+    moved between stacks (world shift added to the center for that stack's initial alignment)."""
     center: np.ndarray
     half: np.ndarray
     R: np.ndarray
@@ -171,7 +177,7 @@ def noise_sigma(data: np.ndarray, mask: np.ndarray, step=(1.0, 1.0)) -> float:
 
 
 def initial_slice_scale(data: np.ndarray, fg: np.ndarray) -> np.ndarray:
-    """Per-slice intensity scale relative to the neighbouring slices (running median of the
+    """Per-slice intensity scale relative to the neighboring slices (running median of the
     slice medians): catches slices with global signal loss before any volume exists."""
     nz = data.shape[2]
     med = np.ones(nz)
@@ -188,17 +194,21 @@ def initial_slice_scale(data: np.ndarray, fg: np.ndarray) -> np.ndarray:
 
 # Weight of the final volume relative to the noise-calibrated weight (which the registration volumes
 # keep). The noise calibration was done on a formula phantom with smooth anatomy. FLAIR: on the
-# FLAIR phantom about a third of it kept twice the contrast of 2-3 mm lesions. Adult / paediatric
+# FLAIR phantom about a third of it kept twice the contrast of 2-3 mm lesions. Adult/pediatric
 # T2: on real anatomy (pseudo-T2 from a 3-D scan) a quarter of it kept the sulci and the cortical
-# ribbon best at every noise level tested (docs/VALIDATION.md, "Grey-white matter and sulci").
+# ribbon best at every noise level tested (docs/VALIDATION.md, "Gray-white matter and sulci").
 FINAL_ALPHA_FACTOR = {"adult": 0.25, "flair": 0.35, "fetal": 1.0}
 FLAIR_ALPHA_FACTOR = FINAL_ALPHA_FACTOR["flair"]
+# With the denoising step (non-local means on the final volume) the final weight is lowered further:
+# the penalty then smooths less across the cortex and the sulci, and non-local means, which averages
+# only voxels with similar surroundings, removes the noise (docs/VALIDATION.md, "Denoising").
+DENOISE_ALPHA_FACTOR = 0.4
 
 
 def auto_alpha(rel_noise: float, regularizer: str, mode: str | None = None) -> float:
-    """Regularisation weight from the relative noise level (noise sigma / median tissue signal).
-    Calibrated on simulated stacks with known ground truth (docs/VALIDATION.md, "Regularisation"):
-    the weight that maximised PSNR and SSIM grew about linearly with the noise level. With a mode,
+    """Regularization weight from the relative noise level (noise sigma / median tissue signal).
+    Calibrated on simulated stacks with known ground truth (docs/VALIDATION.md, "Regularization"):
+    the weight that maximized PSNR and SSIM grew about linearly with the noise level. With a mode,
     the weight of that mode's final volume (FINAL_ALPHA_FACTOR); without, the registration weight."""
     if regularizer == "huber":
         a = 0.1 + 65.0 * rel_noise
@@ -261,7 +271,7 @@ class Reconstruction:
 
     def check_cancel(self):
         if self.cancel():
-            raise RuntimeError("cancelled")
+            raise RuntimeError("canceled")
 
     # -------------------------------------------------------------- prepare
     def prepare(self):
@@ -309,7 +319,7 @@ class Reconstruction:
             self.scale.append(np.ones(st.nz))
             self.bias.append(np.ones(st.shape, np.float32))
             self.pixw.append(np.ones(st.shape, np.float32))
-            # slices much darker or brighter than their neighbours start excluded (re-checked later)
+            # slices much darker or brighter than their neighbors start excluded (re-checked later)
             self.inc.append((sc0 > 0.6) & (sc0 < 1.6))
             self.log(f"stack {st.name}: {st.shape[0]}x{st.shape[1]}x{st.nz} after crop"
                      + (f", binned {b}x{b}" if b > 1 else "") + f", pixel {st.pixel[0]:.2f} mm"
@@ -320,10 +330,12 @@ class Reconstruction:
         rel = float(np.median(self.noise))
         self.rel_noise = rel
         self.alpha = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer, p.mode)
+        if p.alpha is None and p.denoise:
+            self.alpha *= DENOISE_ALPHA_FACTOR
         # volumes used as registration targets keep the noise-calibrated weight (a noisier target
         # makes the motion estimates worse); only the final volume uses the mode's weight
         self.alpha_motion = p.alpha if p.alpha is not None else auto_alpha(rel, p.regularizer)
-        self.log(f"relative noise {rel:.3f}; regularisation {p.regularizer}, alpha {self.alpha:.3g}"
+        self.log(f"relative noise {rel:.3f}; regularization {p.regularizer}, alpha {self.alpha:.3g}"
                  + (" (automatic" + (f"; {self.alpha_motion:.3g} during motion correction"
                                      if self.alpha_motion != self.alpha else "") + ")" if p.alpha is None else ""))
 
@@ -516,7 +528,7 @@ class Reconstruction:
 
     def smooth_in_time(self):
         """Fetal motion is mostly smooth in time: replace each slice's rigid motion by the median
-        (per parameter) of itself and its two neighbours in acquisition order. Sudden jumps are
+        (per parameter) of itself and its two neighbors in acquisition order. Sudden jumps are
         kept (a median preserves steps); isolated registration failures are removed."""
         from .geometry import matrix_to_rotvec, rotvec_to_matrix
         for k, st in enumerate(self.stacks):
@@ -570,7 +582,7 @@ class Reconstruction:
         norm = float(np.median(ref_sc)) if ref_sc else 1.0
         for (k, s), v in slice_stats.items():
             self.scale[k][s] = np.clip(v[0] / norm, 0.3, 3.0)
-        # smooth bias field per stack (normalised convolution of the log intensity ratio)
+        # smooth bias field per stack (normalized convolution of the log intensity ratio)
         if self.p.bias_correction and cycle >= 0:
             for k, st in enumerate(self.stacks):
                 num = np.zeros(st.shape, np.float32)
@@ -694,6 +706,19 @@ class Reconstruction:
         self._progress("final", 0.0, "final super-resolution")
         op = self.build(self.masks())
         x, st = self.srr(op, x0=x, iters=p.final_iterations, final=True)
+        self.denoise_info = None
+        if p.denoise:
+            t1 = time.time()
+            self._progress("final", 0.5, "denoising (non-local means)")
+            fg = _support(st["coverage"]) > 0.5
+            if fg.sum() > 1000:
+                fg &= x > 0.2 * float(np.percentile(x[fg], 95))
+            sig = noise_sigma(x, fg)
+            x = denoise.nlm3d(x, sig, p.denoise_strength, cancel=self.check_cancel)
+            self.denoise_info = {"method": "non-local means, 3x3x3 patches, 5x5x5 search", "noise": round(sig, 5),
+                                 "strength": p.denoise_strength, "seconds": round(time.time() - t1, 1)}
+            self.log(f"denoising: non-local means, noise {sig:.4f}, strength {p.denoise_strength:g}, "
+                     f"{time.time() - t1:.1f} s")
         ys, ws = self.data_and_weights(op)
         cov = st["coverage"]
         b = op.adjoint([w * y for w, y in zip(ws, ys)])
@@ -739,6 +764,7 @@ class Reconstruction:
                            "stack_rotation_deg": round(ang, 3), "stack_translation_mm": round(disp, 3),
                            "slices_detail": per})
         return {"params": self.p.to_dict(), "alpha_used": round(float(self.alpha), 5),
+                "denoise": getattr(self, "denoise_info", None),
                 "alpha_motion": round(float(self.alpha_motion), 5), "grid": self.grid.to_dict(),
                 "roi": self.roi.to_dict(), "stacks": stacks, "stack_registration": stack_reg,
                 "excluded_slices": len(excluded), "timing_s": self.timing,

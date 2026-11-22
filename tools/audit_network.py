@@ -7,7 +7,7 @@ from a URL, and fails if any is not on the reviewed list below or if an external
 
     python tools/audit_network.py
 
-Trace: summarises a SLICEWEAVE_NETTRACE file written while the program ran, and fails if any
+Trace: summarizes a SLICEWEAVE_NETTRACE file written while the program ran, and fails if any
 network event targeted anything other than this computer.
 
     python tools/audit_network.py --trace trace.jsonl
@@ -107,7 +107,7 @@ def scan_static() -> int:
     return 0
 
 
-def summarise_trace(path: str) -> int:
+def summarize_trace(path: str) -> int:
     rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
     by_event = Counter(r["event"] for r in rows)
     targets = Counter()
@@ -138,5 +138,5 @@ def summarise_trace(path: str) -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--trace":
-        sys.exit(summarise_trace(sys.argv[2]))
+        sys.exit(summarize_trace(sys.argv[2]))
     sys.exit(scan_static())
