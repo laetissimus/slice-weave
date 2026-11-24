@@ -27,7 +27,7 @@ python tools/validate.py --out docs/validation \
   12 bright white-matter lesions of 2-8 mm), acquired 192 x 256 over 230 mm (1.2 x 0.9 mm) and
   zero-filled to 512 x 512 (0.45 mm pixels) as scanners do, complex noise added before the
   interpolation (sigma 4.4 % of the white-matter signal), 5 mm slices, 1.5 mm gap, rigid motion
-  between series. Output 1.0 mm. Lesion contrast recovery: (value at the lesion centre - median
+  between series. Output 1.0 mm. Lesion contrast recovery: (value at the lesion center - median
   of the white matter 2-3.5 radii away) / (true lesion - white-matter difference), after the
   intensity scale; median per size group (4 lesions each).
 * Fetal protocol: each orientation twice, 1.1 x 1.1 mm pixels, 3 mm slices, 0.3 mm gap,
@@ -44,11 +44,12 @@ python tools/validate.py --out docs/validation \
 |---|---|---|---|
 | single axial stack, reformatted | 19.97 | 0.628 | 0.819 |
 | average of stacks (no SRR) | 20.25 | 0.669 | 0.835 |
-| **SliceWeave SRR** | **23.21** | **0.817** | **0.920** |
+| **SliceWeave SRR** | **23.26** | **0.833** | **0.922** |
 
 Motion between series: true 1.6 deg / 1.6 mm and 3.5 deg / 1.3 mm; residual after correction
-0.03 deg / 0.03 mm. Reconstruction 53 s. (Before the weaker final weight of adult T2, see below:
-22.45 / 0.807 / 0.902.)
+0.03 deg / 0.03 mm. Reconstruction 59 s. (Earlier final stages, see "Gray-white matter and
+sulci" and "Denoising": full noise-calibrated weight 22.45 / 0.807 / 0.902 (0.1.0); 0.25 x the
+weight without denoising 23.21 / 0.817 / 0.920 (0.1.1).)
 
 ![phantom adult](validation/phantom-adult.png)
 
@@ -61,25 +62,25 @@ the contrast does not matter for the reconstruction).
 |---|---|---|---|
 | single axial stack, reformatted | 22.34 | 0.717 | 0.866 |
 | average of stacks (no SRR) | 23.02 | 0.749 | 0.894 |
-| **SliceWeave SRR** | **25.78** | **0.897** | **0.945** |
+| **SliceWeave SRR** | **25.67** | **0.898** | **0.944** |
 
 Motion between series: true 0.9 deg / 3.2 mm and 4.9 deg / 5.0 mm; residual 0.09 deg / 0.25 mm
-and 0.05 deg / 0.16 mm. Reconstruction 60 s.
+and 0.05 deg / 0.16 mm. Reconstruction 93 s. (0.1.1, without denoising: 25.78 / 0.897 / 0.945.)
 
 ![T1 adult](validation/t1-adult.png)
 
-### Grey-white matter and sulci, pseudo-T2 from the real head scan
+### Gray-white matter and sulci, pseudo-T2 from the real head scan
 
 `tools/validate.py --adult-t1 ... --only cortex` (about 45 min). The 0.88 mm head scan is given
-T2 contrast by mapping its intensities: adult (grey matter brighter than white matter, CSF bright)
-and infant (unmyelinated white matter brighter than grey matter, lower contrast). Child protocol:
+T2 contrast by mapping its intensities: adult (gray matter brighter than white matter, CSF bright)
+and infant (unmyelinated white matter brighter than gray matter, lower contrast). Child protocol:
 AX, COR, SAG, 0.6 x 0.6 mm in-plane, 3 mm slices without gap, 15 % bias, motion between series;
 output 1.0 mm unless stated. Tissue labels come from the scan's own intensities. Measures inside
 the brain, on voxels with enough data:
 
-* grey-white contrast: (median grey matter - median white matter) in the result / in the truth;
+* gray-white contrast: (median gray matter - median white matter) in the result / in the truth;
 * sulcal CSF contrast: the same for CSF next to the cortex (ventricles and cisterns excluded)
-  against grey matter, i.e. how open the sulci are;
+  against gray matter, i.e. how open the sulci are;
 * cortex detail: correlation with the truth of the 0.5-2 mm band-pass detail in the cortical
   ribbon (sulcal pattern, edges of gyri);
 * PSNR and SSIM in the brain.
@@ -87,38 +88,44 @@ the brain, on voxels with enough data:
 Weight of the final volume, as a factor of the noise-calibrated weight (the volumes used for
 motion correction keep the full weight). Adult contrast, noise 3 % (calibrated alpha 2.07):
 
-| Factor | PSNR (dB) | SSIM | grey-white | sulcal CSF | cortex detail |
+| Factor | PSNR (dB) | SSIM | gray-white | sulcal CSF | cortex detail |
 |---|---|---|---|---|---|
 | 1.0 (before) | 26.68 | 0.930 | 1.02 | 0.90 | 0.955 |
 | 0.5 | 27.39 | 0.948 | 1.03 | 0.96 | 0.967 |
 | 0.35 | 27.61 | 0.953 | 1.03 | 0.99 | 0.971 |
-| **0.25 (default)** | **27.72** | **0.956** | **1.03** | **1.01** | **0.973** |
+| 0.25 (0.1.1) | 27.72 | 0.956 | 1.03 | 1.01 | 0.973 |
 | 0.15 | 27.67 | 0.955 | 1.03 | 1.03 | 0.975 |
+| 0.1 | 27.52 | 0.951 | 1.03 | 1.04 | 0.974 |
+| **0.1 + denoising (default since 0.1.2)** | **27.52** | **0.957** | **1.02** | **1.04** | **0.973** |
 
-Other noise levels and the infant contrast, factor 1.0 -> 0.25:
+Other noise levels and the infant contrast, factor 1.0 -> 0.25 -> 0.1 + denoising (default):
 
-| Case | PSNR (dB) | SSIM | grey-white | sulcal CSF | cortex detail |
+| Case | PSNR (dB) | SSIM | gray-white | sulcal CSF | cortex detail |
 |---|---|---|---|---|---|
-| adult, noise 1.5 % | 27.47 -> 27.88 | 0.950 -> 0.962 | 1.02 -> 1.02 | 0.97 -> 1.04 | 0.968 -> 0.976 |
-| adult, noise 6 % | 25.49 -> 27.11 | 0.895 -> 0.941 | 1.02 -> 1.03 | 0.80 -> 0.95 | 0.932 -> 0.965 |
-| infant, noise 3 % | 27.03 -> 27.68 | 0.920 -> 0.943 | 0.50 -> 0.64 | 0.88 -> 0.99 | 0.957 -> 0.972 |
+| adult, noise 1.5 % | 27.47 -> 27.88 -> 27.57 | 0.950 -> 0.962 -> 0.959 | 1.02 -> 1.02 -> 1.01 | 0.97 -> 1.04 -> 1.06 | 0.968 -> 0.976 -> 0.975 |
+| adult, noise 6 % | 25.49 -> 27.11 -> 27.13 | 0.895 -> 0.941 -> 0.947 | 1.02 -> 1.03 -> 1.03 | 0.80 -> 0.95 -> 1.01 | 0.932 -> 0.965 -> 0.968 |
+| infant, noise 3 % | 27.03 -> 27.68 -> 27.46 | 0.920 -> 0.943 -> 0.945 | 0.50 -> 0.64 -> 0.68 | 0.88 -> 0.99 -> 1.02 | 0.957 -> 0.972 -> 0.971 |
 
 The factor 0.25 was best or within 0.1 dB of the best PSNR in every case and kept the sulci
 open; 0.15 opened them slightly more at a small cost in PSNR / SSIM except at 6 % noise.
-The adult grey-white contrast (large regions) was kept at every weight; the strong weight removed
-the fine detail. The low infant grey-white contrast is only partly recovered (0.64; 0.69 at 0.15)
+Lowering the weight further to 0.1 and adding non-local means (the denoising step, default since
+0.1.2) opened the sulci further (sulcal CSF contrast +0.02 to +0.06), raised the infant
+gray-white contrast (0.64 -> 0.68) and SSIM at 3-6 % noise, kept the cortex detail, and cost
+0.2-0.3 dB PSNR at 1.5-3 % noise (none at 6 %).
+The adult gray-white contrast (large regions) was kept at every weight; the strong weight removed
+the fine detail. The low infant gray-white contrast is only partly recovered (0.64; 0.69 at 0.15)
 with 3 mm slices.
 
-Output voxel size (factor 0.25, adult, noise 3 %):
+Output voxel size (defaults, i.e. 0.1 + denoising; adult, noise 3 %):
 
-| Voxel | PSNR (dB) | SSIM | grey-white | sulcal CSF | cortex detail | time |
+| Voxel | PSNR (dB) | SSIM | gray-white | sulcal CSF | cortex detail | time |
 |---|---|---|---|---|---|---|
-| 1.5 mm | 25.94 | 0.943 | 1.05 | 0.92 | 0.911 | 31 s |
-| **1.0 mm (default)** | **27.72** | **0.956** | **1.03** | **1.01** | **0.973** | **96 s** |
-| 0.8 mm | 27.71 | 0.942 | 1.03 | 1.00 | 0.977 | 131 s |
+| 1.5 mm | 25.85 | 0.944 | 1.04 | 0.98 | 0.917 | 34 s |
+| **1.0 mm (default)** | **27.52** | **0.957** | **1.02** | **1.04** | **0.973** | **111 s** |
+| 0.8 mm | 27.54 | 0.944 | 1.02 | 1.02 | 0.977 | 176 s |
 
 1.5 mm voxels blur the cortex; 0.8 mm gave no more than 1.0 mm with these 0.6 x 0.6 x 3 mm
-stacks (slightly more detail, more noise, 40 % more time).
+stacks (slightly more detail, more noise, 60 % more time).
 
 A child moving during every series: smooth drift up to 3 deg / 2 mm over each series plus one
 sudden jump, interleaved slice order; the reference stack moved too, so each result was rigidly
@@ -126,11 +133,11 @@ aligned to the truth before the comparison:
 
 | Motion correction | slice position error (mm) | PSNR (dB) | SSIM | sulcal CSF | cortex detail | time |
 |---|---|---|---|---|---|---|
-| between series, 1 cycle | 2.56 -> 1.83 | 18.75 | 0.587 | 0.49 | 0.48 | 125 s |
-| **slice-to-volume, 6 cycles** | **2.56 -> 0.23** | **21.82** | **0.911** | **0.87** | **0.93** | **522 s** |
+| between series, 1 cycle | 2.56 -> 1.83 | 18.47 | 0.578 | 0.49 | 0.47 | 149 s |
+| **slice-to-volume, 6 cycles** | **2.56 -> 0.23** | **21.72** | **0.915** | **0.91** | **0.93** | **718 s** |
 
 With motion during the series the cortex is smeared and doubled whatever the weight or voxel
-size; slice-to-volume correction restored most of it. (The grey-white contrast, 1.20 after
+size; slice-to-volume correction restored most of it. (The gray-white contrast, 1.20 after
 slice-to-volume correction, is not reliable here: the labels and the scale fit assume the
 alignment to the truth is exact.)
 
@@ -145,6 +152,7 @@ alignment to the truth is exact.)
 | **SliceWeave SRR (FLAIR preset)** | **17.91** | **0.679** | **0.840** | **0.38 / 1.24 / 1.13** |
 | SRR, noise-calibrated weight of the other modes | 18.40 | 0.735 | 0.853 | 0.24 / 1.19 / 1.14 |
 | SRR, pixel size taken as resolution (same weights) | 18.35 | 0.696 | 0.852 | 0.35 / 1.18 / 1.14 |
+| SRR with the denoising step (off by default for FLAIR) | 17.75 | 0.653 | 0.836 | 0.31 / 1.25 / 1.13 |
 | truth on the 1 mm output grid | - | - | - | 0.90 / 1.00 / 1.00 |
 
 Noise estimated at 0.044 of the median tissue signal (all three stacks); alpha 2.95 for the
@@ -154,13 +162,13 @@ and 2.8 deg / 2.3 mm; residual 0.10 deg / 0.15 mm and 0.05 deg / 0.08 mm. Recons
 Reading:
 
 * SRR recovers the contrast of lesions of 4 mm and more (values slightly above 1 are overshoot at
-  the lesion centre from the deconvolution), where a single 5 mm stack or the plain average keeps
+  the lesion center from the deconvolution), where a single 5 mm stack or the plain average keeps
   about half of it. Lesions of 2-3 mm keep about 40 % of their contrast (90 % is the most a 1 mm
   grid can hold): better than one stack (16 %) or the average (9 %), but small lesions are still
   softened. Read lesions on the acquired series.
 * The FLAIR weight trades 0.5 dB PSNR and 0.06 SSIM (mostly noise) for 1.6 x the contrast of
   2-3 mm lesions.
-* Modelling the acquired resolution (1.2 x 0.9 mm instead of the 0.45 mm pixels) matters most
+* Modeling the acquired resolution (1.2 x 0.9 mm instead of the 0.45 mm pixels) matters most
   through the noise estimate, which sets the weight; with the same weights the PSF alone changed
   PSNR / SSIM and lesion contrast by small amounts in opposite directions.
 
@@ -173,10 +181,11 @@ Reading:
 | SRR without motion correction | 17.86 | 0.404 | 0.418 | 4.02 | 119 / 169 |
 | average after SliceWeave motion correction | 21.14 | 0.672 | 0.695 | 1.93 | 155 / 169 |
 | **SliceWeave SRR** | **22.91** | **0.748** | **0.824** | **1.93** | 155 / 169 |
+| SRR with the denoising step (off by default for fetal) | 22.42 | 0.693 | 0.812 | 1.93 | 155 / 169 |
 | SRR with the true motion (upper bound) | 25.47 | 0.789 | 0.885 | 0 | all |
 
 Slice pose error: median over slices of the mean distance between estimated and true positions
-of 7 points within 30 mm of the slice centre, after the best global rigid alignment. Volumes
+of 7 points within 30 mm of the slice center, after the best global rigid alignment. Volumes
 are compared after rigid alignment to the truth. Reconstruction 206 s.
 
 Reading: motion correction is what makes fetal SRR possible (without it the SRR is worse than a
@@ -199,11 +208,11 @@ from the reconstructed volume (inside the brain mask).
 | without motion correction | 0.687 | 0.566 | 126 / 130 | 17 s |
 | **SliceWeave (slice-to-volume)** | **0.969** | **0.954** | 130 / 130 | 99 s |
 
-Since 1.1.0 the acquired in-plane resolution is modelled: the dcm2niix sidecars give 224
-phase-encoding lines reconstructed to 320, so 1.61 x 1.125 mm (v1.0.0 assumed the 1.125 mm
+Since 0.1.1 the acquired in-plane resolution is modeled: the dcm2niix sidecars give 224
+phase-encoding lines reconstructed to 320, so 1.61 x 1.125 mm (0.1.0 assumed the 1.125 mm
 pixels: 0.973 / 0.955). Estimated stack motion relative to the reference (COR run-3, chosen
 automatically as the stack with the least motion): AX 4.2 deg / 7.0 mm and 6.4 deg / 6.2 mm, COR
-3.5 deg / 2.0 mm, SAG 20.3 deg / 6.6 mm and 20.7 deg / 8.1 mm (v1.0.0: within 0.3 deg / 0.04 mm
+3.5 deg / 2.0 mm, SAG 20.3 deg / 6.6 mm and 20.7 deg / 8.1 mm (0.1.0: within 0.3 deg / 0.04 mm
 of these). Consistency is measured against a volume built from the
 same slices, so it shows that the motion estimates make the slices agree with each other; it is
 not an accuracy measure. Visually (figure), the corrected reconstruction shows the lateral
@@ -211,6 +220,31 @@ ventricles, the cortical ribbon, the corpus callosum and the cerebellum without 
 misregistration of the uncorrected one.
 
 ![real fetal](validation/real-fetal.png)
+
+## Denoising
+
+The denoising step (0.1.2) lowers the weight of the final volume to 0.4 x the mode's weight and
+then applies non-local means (docs/METHODS.md). It was kept as a default only where it helped:
+
+| Case | without | with denoising | default |
+|---|---|---|---|
+| pseudo-T2, adult, 3 % noise (PSNR / SSIM / sulcal CSF) | 27.72 / 0.956 / 1.01 | 27.52 / 0.957 / 1.04 | on |
+| pseudo-T2, adult, 6 % noise | 27.11 / 0.941 / 0.95 | 27.13 / 0.947 / 1.01 | on |
+| pseudo-T2, infant, 3 % noise (gray-white contrast) | 0.64 | 0.68 | on |
+| adult formula phantom (PSNR / SSIM) | 23.21 / 0.817 | 23.26 / 0.833 | on |
+| adult, real anatomy, T1 contrast | 25.78 / 0.897 | 25.67 / 0.898 | on |
+| FLAIR phantom (PSNR / SSIM / 2-3 mm lesion contrast) | 17.91 / 0.679 / 0.38 | 17.75 / 0.653 / 0.31 | off |
+| fetal phantom (PSNR / SSIM) | 22.91 / 0.748 | 22.42 / 0.693 | off |
+| public fetal data (median slice NCC) | 0.969 | 0.969 | off |
+
+For FLAIR the weaker weight let noise through around small lesions and non-local means then
+averaged the lesion edges; on the fetal phantom the remaining slice misregistration (1.9 mm) is
+the main error and a weaker weight shows more of it. The setting can be switched on for both in
+the viewer (Settings > Denoise) or with `--denoise on`.
+
+On the two pediatric examples supplied by the user (single-shot T2, 3 and 5 mm slices; not
+included here, patient data), the new final stage showed the cortical ribbon and the sulci more
+sharply than 0.1.1 and 0.1.0 by visual comparison; no truth is available for real data.
 
 ## Number of cycles
 
@@ -247,11 +281,11 @@ The registration to the reference stack was already accurate; the cycle re-check
 super-resolved volume and matters when the first registration is off (large movement between
 series, a poor reference stack).
 
-## Regularisation
+## Regularization
 
-The automatic regularisation (`alpha = 0.1 + 65 x relative noise`, Huber penalty) was chosen on
+The automatic regularization (`alpha = 0.1 + 65 x relative noise`, Huber penalty) was chosen on
 an earlier version of the adult phantom (truth 1 mm, without stack motion) at four noise levels
-(0.5, 1, 2 and 4 % of the CSF signal; alpha 0.1-10) by the alpha that maximised PSNR and SSIM
+(0.5, 1, 2 and 4 % of the CSF signal; alpha 0.1-10) by the alpha that maximized PSNR and SSIM
 together: about 0.5-1 at 0.5 %, 1-3 at 1 %, about 3 at 2 % and 3-10 at 4 % (PSNR peaked at the
 lower, SSIM at the higher value); the formula gives 0.85, 1.6, 3.1 and 6.1. The noise estimate (Immerkaer Laplacian, relative to the median tissue signal) matched the
 simulated noise within about 10 % at 2 %. On zero-filled (interpolated) images the noise is
@@ -262,15 +296,15 @@ The calibration looked at the whole image of a phantom with smooth anatomy. For 
 the presets use part of this weight; the volumes used as registration targets keep all of it (a
 noisier target makes the motion estimates worse):
 
-* adult / paediatric T2: 0.25 x (on real anatomy this kept the sulci and the cortical ribbon and
-  improved PSNR / SSIM at 1.5-6 % noise; see "Grey-white matter and sulci");
+* adult/pediatric T2: 0.25 x (on real anatomy this kept the sulci and the cortical ribbon and
+  improved PSNR / SSIM at 1.5-6 % noise; see "Gray-white matter and sulci");
 * FLAIR: 0.35 x (FLAIR is read for small focal lesions; lesion contrast of 2-3 mm lesions about
   1.5 x higher for a small loss of PSNR and SSIM; see the FLAIR table);
 * fetal: 1.0 x (unchanged; not yet tested on real fetal anatomy with truth).
 
 ## Tests run on every build
 
-`pytest` (38 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
+`pytest` (42 tests): rotation algebra, operator/adjoint dot test, registration recovers a known
 3D motion (< 0.2 deg / 0.2 mm), SRR beats the average and recovers between-series motion
 (< 0.5 deg / 0.5 mm), DICOM write/read geometry, NIfTI round trip and JSON sidecar thickness,
 DICOM decoding (implicit, big-endian, RLE), case ID and de-identification rules, server login /
@@ -281,16 +315,17 @@ estimate on zero-filled images, the FLAIR preset refusing slice-to-volume correc
 switching stacks and warning on mixed contrasts, the cycle schedule (registration and
 intensity / outlier passes for each setting), the warning for a coarse output voxel, cycles
 following the motion correction, the brain window, the DICOM export windows and the weaker final
-weight of adult T2. `sliceweave selftest` (DICOM round trip, FLAIR
+weight of adult T2, non-local means (noise removed, edges and small structures kept, slabs equal
+to the whole volume), the denoising setting and the version stamp from the release tag. `sliceweave selftest` (DICOM round trip, FLAIR
 recognition, adult phantom end-to-end) runs on Windows from source and inside the built
 executable with outbound network traffic blocked.
 
 ## Not yet validated
 
-* Clinical image quality (reader study), paediatric data, 3 T data, other vendors' single-shot
+* Clinical image quality (reader study), pediatric data, 3 T data, other vendors' single-shot
   sequences.
 * 2-D FLAIR on patient data (phantom only so far): lesion detection and conspicuity against the
-  acquired series, inflow and CSF-pulsation artefacts, motion within a multi-shot series.
+  acquired series, inflow and CSF-pulsation artifacts, motion within a multi-shot series.
 * Comparison against NiftyMIC / SVRTK / NeSVoR on the same stacks.
 * Robustness to severe fetal motion (large rotations within a stack) and to poor region placement.
 * Quantitative accuracy of measurements (biometry, volumetry) on the reconstructed volumes.

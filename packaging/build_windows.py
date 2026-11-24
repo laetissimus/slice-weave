@@ -3,7 +3,7 @@
 Produces in ./dist:
   SliceWeave.exe               one file; double-click to run (unpacks itself to a temp folder)
   SliceWeave-portable.zip      a folder version that starts faster (unzip, run SliceWeave.exe)
-  THIRD-PARTY-NOTICES.txt      licences of the bundled Python and libraries (also inside the portable folder)
+  THIRD-PARTY-NOTICES.txt      licenses of the bundled Python and libraries (also inside the portable folder)
   SHA256SUMS.txt, build-report.json
 
 Run on Windows 10/11 x64 with Python 3.13:
@@ -19,7 +19,9 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import shutil
+import subprocess
 import sys
 import zipfile
 from importlib import metadata
@@ -32,11 +34,59 @@ NAME = "SliceWeave"
 EXCLUDES = ["tkinter", "_tkinter", "pytest", "IPython", "notebook", "pandas", "skimage", "torch", "matplotlib",
             "PyQt5", "PyQt6", "PySide2", "PySide6", "wx", "gi", "sphinx", "docutils", "PIL"]
 sys.path.insert(0, str(ROOT))
-from sliceweave.config import VERSION  # noqa: E402
+from sliceweave.config import BASE_VERSION  # noqa: E402
+
+
+def resolve_version() -> str:
+    """The version shown by the program: SLICEWEAVE_VERSION (the release workflow sets it to the release
+    tag), else `git describe` (v0.1.1 -> 0.1.1; 3 commits later -> 0.1.1+3.g1a2b3c4), else BASE_VERSION+dev."""
+    v = os.environ.get("SLICEWEAVE_VERSION", "").strip()
+    if v:
+        v = v[1:] if v[:1] in "vV" else v
+        if not re.fullmatch(r"\d+\.\d+\.\d+([.+-][0-9A-Za-z.+-]*)?", v):
+            raise SystemExit(f"SLICEWEAVE_VERSION {v!r} is not a version like 0.1.2 (tag v0.1.2)")
+        return v
+    try:
+        d = subprocess.run(["git", "describe", "--tags", "--match", "v[0-9]*", "--dirty"], cwd=ROOT,
+                           capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        d = ""
+    m = re.fullmatch(r"v(\d+\.\d+\.\d+)(?:-(\d+)-g([0-9a-f]+))?(-dirty)?", d)
+    if not m:
+        return BASE_VERSION + "+dev"
+    local = [f"{m.group(2)}.g{m.group(3)}"] if m.group(2) else []
+    local += ["dirty"] if m.group(4) else []
+    return m.group(1) + ("+" + ".".join(local) if local else "")
+
+
+VERSION = resolve_version()
+
+
+def version_file(path: Path) -> Path:
+    """Windows file version resource (Explorer: Properties > Details)."""
+    nums = (re.match(r"(\d+)\.(\d+)\.(\d+)", VERSION).groups() + ("0",))[:4]
+    t = "(" + ", ".join(nums) + ")"
+    path.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={t}, prodvers={t}, mask=0x3f, flags=0x0, OS=0x40004,
+                    fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'Research prototype (not a medical device)'),
+      StringStruct('FileDescription', 'SliceWeave - research use only'),
+      StringStruct('FileVersion', '{VERSION}'),
+      StringStruct('InternalName', 'SliceWeave'),
+      StringStruct('OriginalFilename', 'SliceWeave.exe'),
+      StringStruct('ProductName', 'SliceWeave'),
+      StringStruct('ProductVersion', '{VERSION}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+""", encoding="utf-8")
+    return path
 
 README = f"""SliceWeave {VERSION} - standalone build
 Super-resolution reconstruction of 3-plane 2-D stacks into one isotropic volume:
-single-shot T2 (HASTE / SSFSE) for adult, paediatric and fetal brain, and 2-D FLAIR.
+single-shot T2 (HASTE / SSFSE) for adult, pediatric and fetal brain, and 2-D FLAIR.
 RESEARCH USE ONLY - NOT FOR CLINICAL DIAGNOSIS
 
 Nothing to install. Double-click SliceWeave.exe:
@@ -62,7 +112,7 @@ The executable is not code-signed. Windows SmartScreen may say "Windows protecte
 choose "More info" then "Run anyway", or ask IT to allow or sign it. Managed computers with
 application control (AppLocker / WDAC) need IT approval before it can run.
 
-Bundled open-source components and their licences: THIRD-PARTY-NOTICES.txt.
+Bundled open-source components and their licenses: THIRD-PARTY-NOTICES.txt.
 """
 
 # packages bundled into the executable (their dependencies are found from the package metadata)
@@ -91,10 +141,10 @@ def _bundled_distributions() -> dict:
 
 
 def third_party_notices() -> str:
-    """Licence texts of Python and of every bundled package, as their binary licences require."""
+    """License texts of Python and of every bundled package, as their binary licenses require."""
     rule = "=" * 78
     out = [f"SliceWeave {VERSION} - third-party notices",
-           "The executable bundles the components below. Each is used under its own licence, reproduced",
+           "The executable bundles the components below. Each is used under its own license, reproduced",
            "here from the installed package. The executable is built with PyInstaller, whose bootloader is",
            "GPL-2.0 with an exception that allows distribution of built programs under any terms.", ""]
     py_lic = Path(sys.base_prefix) / "LICENSE.txt"
@@ -110,7 +160,7 @@ def third_party_notices() -> str:
             lic = short if short and len(short) < 80 and "\n" not in short else "; ".join(classifiers)
         files = [f for f in dist.files or []
                  if str(f).split("/")[0].endswith(".dist-info")
-                 and any(w in f.name.upper() for w in ("LICENSE", "LICENCE", "COPYING", "NOTICE"))]
+                 and any(w in f.name.upper() for w in ("LICENSE", "LICENSE", "COPYING", "NOTICE"))]
         out += ["", rule, f"{md['Name']} {dist.version}" + (f" ({lic})" if lic else ""), rule]
         texts = []
         for f in sorted(files, key=str):
@@ -118,7 +168,7 @@ def third_party_notices() -> str:
                 texts.append(f"--- {f.name} ---\n" + dist.locate_file(f).read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 pass
-        out.append("\n\n".join(texts) if texts else f"Licence: {lic or 'see the project page'}"
+        out.append("\n\n".join(texts) if texts else f"License: {lic or 'see the project page'}"
                    + (f"; {md.get('Home-page') or ''}" if md.get("Home-page") else ""))
     return "\n".join(out).rstrip() + "\n"
 
@@ -129,7 +179,7 @@ def _args(mode: str) -> list[str]:
             "--paths", str(ROOT),
             "--add-data", f"{ROOT / 'sliceweave' / 'web'}{sep}sliceweave/web",
             "--collect-submodules", "uvicorn", "--collect-submodules", "sliceweave",
-            "--hidden-import", "python_multipart",
+            "--hidden-import", "python_multipart", "--hidden-import", "sliceweave._version",
             "--distpath", str(DIST if mode == "onefile" else DIST / "portable"),
             "--workpath", str(BUILD / mode), "--specpath", str(BUILD / mode)]
     for m in EXCLUDES:
@@ -140,7 +190,7 @@ def _args(mode: str) -> list[str]:
     if importlib.util.find_spec("gdcm"):
         args += ["--collect-all", "gdcm"]
     if os.name == "nt":
-        args += ["--version-file", str(ROOT / "packaging" / "version_info.txt")]
+        args += ["--version-file", str(version_file(BUILD / f"version_info_{mode}.txt"))]
     return args + [str(ROOT / "packaging" / "launcher.py")]
 
 
@@ -157,9 +207,16 @@ def main():
     modes = ("onefile",) if "--onefile-only" in sys.argv else ("onefile", "onedir")
     shutil.rmtree(DIST, ignore_errors=True)
     shutil.rmtree(BUILD, ignore_errors=True)
-    for mode in modes:
-        print(f"== PyInstaller {mode}", flush=True)
-        PyInstaller.__main__.run(_args(mode))
+    BUILD.mkdir(parents=True)
+    stamp = ROOT / "sliceweave" / "_version.py"
+    stamp.write_text(f'VERSION = "{VERSION}"  # written by packaging/build_windows.py\n', encoding="utf-8")
+    print(f"== SliceWeave {VERSION}", flush=True)
+    try:
+        for mode in modes:
+            print(f"== PyInstaller {mode}", flush=True)
+            PyInstaller.__main__.run(_args(mode))
+    finally:
+        stamp.unlink(missing_ok=True)  # running from source shows BASE_VERSION+dev again
     exe = DIST / (NAME + (".exe" if os.name == "nt" else ""))
     notices = third_party_notices()
     (DIST / "README-WINDOWS.txt").write_text(README, encoding="utf-8")

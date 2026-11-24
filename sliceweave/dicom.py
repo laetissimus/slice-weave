@@ -374,7 +374,7 @@ def _rle_decode_frame(data: bytes, rows: int, cols: int, spp: int, bits: int) ->
 def pixel_array(ds: Dataset, path=None, rescale: bool = True) -> np.ndarray:
     """Return pixel data as float32 array (frames, rows, cols) for grayscale data.
 
-    Colour images raise DicomError: the workbench never imports colour pixels
+    Color images raise DicomError: the workbench never imports color pixels
     (screenshots, burned-in annotations)."""
     rows, cols = int(ds.Rows or 0), int(ds.Columns or 0)
     spp = int(ds.SamplesPerPixel or 1)
@@ -384,7 +384,7 @@ def pixel_array(ds: Dataset, path=None, rescale: bool = True) -> np.ndarray:
     nframes = int(ds.NumberOfFrames or 1) if ds.NumberOfFrames not in (None, "") else 1
     photo = str(ds.PhotometricInterpretation or "MONOCHROME2").upper()
     if spp != 1 or not photo.startswith("MONOCHROME"):
-        raise DicomError(f"colour image ({photo}) refused: possible screenshot or burned-in annotation")
+        raise DicomError(f"color image ({photo}) refused: possible screenshot or burned-in annotation")
     if PIXEL_TAG not in ds:
         raise DicomError("no pixel data")
     vr, val = ds[PIXEL_TAG]

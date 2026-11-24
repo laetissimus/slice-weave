@@ -67,13 +67,19 @@
 
     <section id="secPlan">
       <h2><span class="step">4</span>Mode and region <span class="state" id="planState"></span></h2>
-      <div class="seg mode" id="modePick"><button data-mode="adult" title="Single-shot T2 (HASTE, SSFSE, SSh-TSE), adult or paediatric">Adult / paed. T2</button><button data-mode="flair" title="2-D FLAIR (multi-shot inversion recovery), adult or paediatric: motion between series only">2-D FLAIR</button><button data-mode="fetal" title="Fetal single-shot T2 with slice-to-volume motion correction">Fetal brain</button></div>
+      <div class="seg mode" id="modePick"><button data-mode="adult" title="Single-shot T2 (HASTE, SSFSE, SSh-TSE), adult or pediatric">Adult/pediatric T2</button><button data-mode="flair" title="2-D FLAIR (multi-shot inversion recovery), adult or pediatric: motion between series only">2-D FLAIR</button><button data-mode="fetal" title="Fetal single-shot T2 with slice-to-volume motion correction">Fetal brain</button></div>
       <ul class="warn" id="planWarn" hidden></ul>
       <p class="hint" id="modeHint"></p>
       <div class="kv" id="roiInfo"></div>
+      <div class="roisize" id="roiSize" hidden title="Size of the region along each axis of the full view; drag its edges, corners or center on the views for direct control">
+        <span class="k">Size (mm)</span>
+        <label><span id="roiAx0">1</span><input type="number" id="roiS0" min="10" max="400" step="1"></label>
+        <label><span id="roiAx1">2</span><input type="number" id="roiS1" min="10" max="400" step="1"></label>
+        <label><span id="roiAx2">3</span><input type="number" id="roiS2" min="10" max="400" step="1"></label>
+      </div>
       <div class="row left">
         <button id="btnRoiTool" title="Drag a rectangle on any view to set the region in that plane">Draw region</button>
-        <button id="btnRoiCenter" title="Move the region centre to the crosshair">Centre on cursor</button>
+        <button id="btnRoiCenter" title="Move the region center to the crosshair">Center on cursor</button>
         <button id="btnRoiReset" class="ghost">Reset</button>
       </div>
       <label class="field inline small">Shape <select id="roiShape"><option value="box">Box</option><option value="ellipsoid">Ellipsoid</option></select></label>
@@ -88,7 +94,7 @@
         <label class="field">Motion correction
           <select id="setMotion"><option value="none">None</option><option value="stack">Between series</option><option value="slice">Slice-to-volume</option></select></label>
         <label class="field" title="Rounds of motion correction; each is followed by intensity correction, the outlier check and a new reconstruction">Cycles <input id="setCycles" type="number" min="0" max="8" step="1"></label>
-        <label class="field">Regularisation
+        <label class="field">Regularization
           <select id="setAlphaMode"><option value="auto">Automatic (noise)</option><option value="manual">Manual</option></select></label>
         <label class="field" id="alphaField" hidden>Weight (alpha) <input id="setAlpha" type="number" min="0.01" step="0.1"></label>
         <label class="field">Penalty
@@ -97,6 +103,7 @@
       <p class="hint" id="cyclesHint"></p>
       <label class="check"><input type="checkbox" id="setOutlier"><span>Reject outlier slices<small>Slices that do not match the volume (motion during the echo train, signal loss) are excluded; pixels are down-weighted robustly.</small></span></label>
       <label class="check"><input type="checkbox" id="setBias"><span>Correct intensity differences<small>Per-slice scaling and a smooth bias field per stack (coil sensitivity).</small></span></label>
+      <label class="check"><input type="checkbox" id="setDenoise"><span>Denoise<small>Non-local means on the final volume, which is then regularized less: noise is removed by averaging only voxels with similar surroundings, so the cortex and the sulci stay sharp. Default on for adult/pediatric T2, off for FLAIR and fetal.</small></span></label>
       <div class="kv" id="gridInfo"></div>
     </section>
 
@@ -114,8 +121,8 @@
       <span class="seg whichseg" id="whichPick"><button data-which="overview" class="on">Inputs (full view)</button><button data-which="result">Result</button></span>
       <label>Image <select id="baseSel" disabled></select></label>
       <label title="Press B to switch between the image and this one">Compare (B) <select id="cmpSel" disabled></select></label>
-      <label title="Brain: grey and white matter spread over the grey levels, CSF near white. Full: the whole intensity range. Right-drag on an image to adjust (left-right: width, up-down: level)">Window <select id="winSel"><option value="brain">Brain</option><option value="full">Full range</option></select></label>
-      <label><input type="checkbox" id="optCross" checked> Crosshair</label>
+      <label title="Brain: gray and white matter spread over the gray levels, CSF near white. Full: the whole intensity range. Right-drag on an image to adjust (left-right: width, up-down: level)">Window <select id="winSel"><option value="brain">Brain</option><option value="full">Full range</option></select></label>
+      <label title="Show or hide the crosshair (key X)"><input type="checkbox" id="optCross" checked> Crosshair (X)</label>
       <label><input type="checkbox" id="optRoi" checked> Region</label>
       <span class="spacer"></span>
       <span id="cursorLine" class="mono small"></span>
@@ -136,11 +143,11 @@
     </section>
     <section id="secReorient">
       <h2>Reorient <span class="state">optional</span></h2>
-      <p class="hint">Rotate the result about its centre (in its own axes), e.g. to show a fetal brain in standard planes. Resampled with cubic splines.</p>
-      <div class="slider"><span>X</span><input type="range" id="rx" min="-180" max="180" step="1" value="0"><span class="val" id="rxv">0</span></div>
-      <div class="slider"><span>Y</span><input type="range" id="ry" min="-180" max="180" step="1" value="0"><span class="val" id="ryv">0</span></div>
-      <div class="slider"><span>Z</span><input type="range" id="rz" min="-180" max="180" step="1" value="0"><span class="val" id="rzv">0</span></div>
-      <div class="row left"><button id="btnReorient" disabled>Apply</button><button id="btnReorientReset" class="ghost" disabled>Original</button></div>
+      <p class="hint">Rotate the result about its center (in its own axes), e.g. to show a fetal brain in standard planes. The views show a live preview; Apply resamples with cubic splines.</p>
+      <div class="slider"><span>X</span><input type="range" id="rx" min="-180" max="180" step="0.5" value="0"><input type="number" class="val" id="rxn" min="-180" max="180" step="0.1" value="0" title="Degrees about the volume's first axis"></div>
+      <div class="slider"><span>Y</span><input type="range" id="ry" min="-180" max="180" step="0.5" value="0"><input type="number" class="val" id="ryn" min="-180" max="180" step="0.1" value="0" title="Degrees about the volume's second axis"></div>
+      <div class="slider"><span>Z</span><input type="range" id="rz" min="-180" max="180" step="0.5" value="0"><input type="number" class="val" id="rzn" min="-180" max="180" step="0.1" value="0" title="Degrees about the volume's third axis"></div>
+      <div class="row left"><button id="btnReoTool" disabled title="Drag on a view to turn the volume about that view's axis until the anatomy lines up with the dashed axes (Shift: fine; Esc: done)">Rotate on images</button><button id="btnReorient" disabled>Apply</button><button id="btnReorientReset" class="ghost" disabled>Original</button></div>
       <div class="msg" id="reoMsg"></div>
     </section>
     <section>

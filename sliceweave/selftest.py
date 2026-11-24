@@ -86,7 +86,7 @@ def run(full: bool = False, out: Path | None = None, log=print) -> dict:
         check("DICOM write and read back", same and geo and st.plane == "COR", plane=st.plane, slices=st.nz,
               haste_like=series.looks_like_haste(found[0]))
         del A
-        # 2-D FLAIR: recognised, acquired (not displayed) resolution read from the header
+        # 2-D FLAIR: recognized, acquired (not displayed) resolution read from the header
         v2 = np.zeros((128, 128, 6), np.float32)
         v2[40:90, 40:90] = 500
         a2 = np.array([[1.8, 0, 0, -115], [0, 1.8, 0, -115], [0, 0, 6.5, 0], [0, 0, 0, 1]], float)
@@ -102,7 +102,7 @@ def run(full: bool = False, out: Path | None = None, log=print) -> dict:
             guard = False
         except ValueError:
             guard = True
-        check("2-D FLAIR: recognised, acquired resolution read, slice-by-slice motion refused",
+        check("2-D FLAIR: recognized, acquired resolution read, slice-by-slice motion refused",
               series.looks_like_flair(f) and not series.looks_like_haste(f) and ok_res and guard,
               resolution_mm=[round(v, 3) for v in stf.resolution])
     # 2. adult mode on the phantom
@@ -155,7 +155,7 @@ def run(full: bool = False, out: Path | None = None, log=print) -> dict:
 
 
 def _pose_error(rec, Ts) -> float:
-    """Median slice pose error (mm, mean over points +/-30 mm around the slice centre) after the
+    """Median slice pose error (mm, mean over points +/-30 mm around the slice center) after the
     best global rigid alignment of the estimated to the true poses."""
     off = np.array([[0, 0, 0], [30, 0, 0], [-30, 0, 0], [0, 30, 0], [0, -30, 0], [0, 0, 30], [0, 0, -30]], float)
     E, T = [], []

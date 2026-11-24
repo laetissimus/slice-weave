@@ -13,6 +13,7 @@ from .config import RESEARCH_BANNER, VERSION
 from .dicom_write import new_uid, write_series
 from .layers import brain_window
 from .nifti import read_nifti
+from .recon import MODE_NAMES
 from .store import CaseStore, StoreError
 
 # attributes copied from a user-supplied DICOM file of the original study ("attach to study")
@@ -25,8 +26,8 @@ EXTRA_TAGS = {"SoftwareVersions": (0x00181020, "LO"), "DerivationDescription": (
 
 
 def dicom_windows(data: np.ndarray) -> dict:
-    """Two display windows, the first used by default: BRAIN (grey and white matter spread over the
-    grey levels, CSF near white; as the viewer) and FULL (the whole intensity range)."""
+    """Two display windows, the first used by default: BRAIN (gray and white matter spread over the
+    gray levels, CSF near white; as the viewer) and FULL (the whole intensity range)."""
     pos = data[data > 0]
     if not pos.size:
         return {"WindowCenter": 0.5, "WindowWidth": 1.0}
@@ -134,9 +135,9 @@ def _readme(case: dict, identified: bool) -> str:
     plan = case.get("plan") or {}
     lines = [f"SliceWeave {VERSION} export - {RESEARCH_BANNER}", "",
              f"Case: {case['case_id']}" + ("  (SIMULATED DATA)" if case.get("simulated") else ""),
-             f"Mode: {plan.get('mode')}   voxel: {r.get('grid', {}).get('spacing')} mm   grid: {r.get('grid', {}).get('shape')}",
+             f"Mode: {MODE_NAMES.get(plan.get('mode'), plan.get('mode'))}   voxel: {r.get('grid', {}).get('spacing')} mm   grid: {r.get('grid', {}).get('shape')}",
              f"Reoriented: {r.get('reorient') or 'no'}", "",
-             "srr: super-resolution reconstruction (motion-corrected, PSF deconvolution, edge-preserving regularisation).",
+             "srr: super-resolution reconstruction (motion-corrected, PSF deconvolution, edge-preserving regularization).",
              "average: PSF-weighted mean of the same slices without deconvolution (baseline for comparison).",
              "report.json / slices.csv: settings, stack and slice registration, excluded slices, timing.", ""]
     if identified:
@@ -144,7 +145,7 @@ def _readme(case: dict, identified: bool) -> str:
                   "export time, so PACS files it with that study. Handle it as identifiable data."]
     else:
         lines += ["De-identified: PatientID is the coded case ID; no patient attributes are included."]
-    lines += ["", "The volume is computed from the acquired slices and can contain reconstruction artefacts;",
+    lines += ["", "The volume is computed from the acquired slices and can contain reconstruction artifacts;",
               "always compare with the original 2-D series."]
     return "\n".join(lines) + "\n"
 

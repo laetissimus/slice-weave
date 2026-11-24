@@ -19,7 +19,8 @@
                   set(k, v) { try { localStorage.setItem("sw." + k, v); } catch (e) { /* storage unavailable */ } } };
   const S = { csrf: null, session: null, cid: null, case: null, poll: null, view: "three", which: "overview",
               grid: null, layers: [], base: null, cmp: null, cursor: [0, 0, 0], tool: "nav", cross: true, showRoi: true,
-              report: null, jobKind: null };
+              report: null, jobKind: null, roiEdit: null,
+              reo: { tool: false, rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], applied: null } };
 
   // ---------------------------------------------------------------- API
   async function api(method, path, body) {
@@ -183,7 +184,7 @@
     if (!sts.length) { box.append(el("p", { class: "muted small", text: "No stacks yet." })); return; }
     const plan = c.plan || {};
     const t = el("table", { class: "stacks" });
-    t.append(el("tr", {}, ...["Use", "Ref", "Stack", "Pixel", "Thick.", "Sl.", "Motion"].map(h => el("th", { text: h, title: h === "Motion" ? "Correlation of neighbouring slices: higher = less motion" : "" }))));
+    t.append(el("tr", {}, ...["Use", "Ref", "Stack", "Pixel", "Thick.", "Sl.", "Motion"].map(h => el("th", { text: h, title: h === "Motion" ? "Correlation of neighboring slices: higher = less motion" : "" }))));
     for (const s of sts) {
       const use = el("input", { type: "checkbox" }); use.checked = !!s.include;
       use.addEventListener("change", () => changeStacks([{ id: s.id, include: use.checked }]));
@@ -217,22 +218,30 @@
     $$("#modePick button").forEach(b => { b.classList.toggle("on", !!plan && b.dataset.mode === plan.mode); b.disabled = !c || !(c.stacks || []).length; });
     $("#planState").textContent = plan ? plan.roi_source || "" : "";
     $("#modeHint").textContent = !plan ? "" : plan.mode === "fetal"
-      ? "Fetal: slice-to-volume motion correction. Place the region (ellipsoid) on the fetal brain in the full view: Draw region, or Centre on cursor. A brain mask imported with the stacks is used if present."
+      ? "Fetal: slice-to-volume motion correction. Place the region (ellipsoid) on the fetal brain in the full view: Draw region, or Center on cursor. A brain mask imported with the stacks is used if present."
       : plan.mode === "flair"
       ? "2-D FLAIR: the head is found automatically; motion between series is corrected. FLAIR is multi-shot, so slices cannot be corrected one by one: exclude a series degraded by motion. Use the three planes of one FLAIR protocol (same TR, TE, TI)."
-      : "Adult / paediatric single-shot T2: the head is found automatically; motion between series is corrected. Choose Slice-to-volume for a moving child.";
+      : "Adult/pediatric single-shot T2: the head is found automatically; motion between series is corrected. Choose Slice-to-volume for a moving child.";
     const warn = $("#planWarn"); warn.textContent = "";
     const ws = (plan && plan.warnings) || [];
     ws.forEach(w => warn.append(el("li", { text: w })));
     warn.hidden = !ws.length;
     const sliceOpt = $$("#setMotion option").find(o => o.value === "slice");
     if (sliceOpt) { sliceOpt.disabled = !!plan && plan.mode === "flair"; sliceOpt.title = sliceOpt.disabled ? "Not for multi-shot FLAIR" : ""; }
-    const info = $("#roiInfo"); info.textContent = "";
+    const info = $("#roiInfo"); info.textContent = ""; $("#roiSize").hidden = true;
     if (plan) {
       const r = plan.roi;
       info.append(el("span", { class: "k", text: "Region" }), el("span", { class: "v", text: `${r.shape}, ${r.half.map(h => (2 * h).toFixed(0)).join(" x ")} mm` }),
-        el("span", { class: "k", text: "Centre (RAS)" }), el("span", { class: "v", text: r.center.map(v => v.toFixed(1)).join(", ") }));
+        el("span", { class: "k", text: "Center (RAS)" }), el("span", { class: "v", text: r.center.map(v => v.toFixed(1)).join(", ") }));
       $("#roiShape").value = r.shape;
+      // size along each region axis, labeled by its nearest patient direction
+      const names = ["R-L", "A-P", "S-I"];
+      for (let q = 0; q < 3; q++) {
+        const col = r.R ? [r.R[0][q], r.R[1][q], r.R[2][q]].map(Math.abs) : null;
+        $("#roiAx" + q).textContent = col ? names[col.indexOf(Math.max(...col))] : String(q + 1);
+        if (document.activeElement !== $("#roiS" + q)) $("#roiS" + q).value = (2 * r.half[q]).toFixed(0);
+      }
+      $("#roiSize").hidden = false;
       const p = plan.params;
       $("#setRes").value = String(p.resolution.toFixed(1)).replace(/\.0$/, ".0");
       if (!$$("#setRes option").some(o => o.value === $("#setRes").value)) $("#setRes").append(el("option", { text: String(p.resolution) }));
@@ -242,6 +251,7 @@
       $("#setAlphaMode").value = p.alpha === null || p.alpha === undefined ? "auto" : "manual";
       $("#alphaField").hidden = $("#setAlphaMode").value === "auto"; if (p.alpha) $("#setAlpha").value = p.alpha;
       $("#setReg").value = p.regularizer; $("#setOutlier").checked = !!p.outlier_rejection; $("#setBias").checked = !!p.bias_correction;
+      $("#setDenoise").checked = p.denoise !== false;
     }
     $$("#secSettings select, #secSettings input, #secPlan button, #roiShape").forEach(x => { if (!x.closest("#modePick")) x.disabled = !plan; });
     $("#setCycles").disabled = !plan || $("#setMotion").value === "none";
@@ -267,6 +277,12 @@
   }));
   $("#btnRoiReset").addEventListener("click", async () => { const m = S.case.plan.mode; const r = (await api("POST", `/api/cases/${S.cid}/plan`, { mode: m })).data; renderGridInfo(r); await refreshCase(); draw(); });
   $("#roiShape").addEventListener("change", e => changePlan({ roi: { shape: e.target.value } }));
+  for (let q = 0; q < 3; q++) $("#roiS" + q).addEventListener("change", () => {
+    const plan = S.case && S.case.plan; if (!plan) return;
+    const half = plan.roi.half.slice();
+    half[q] = Math.max(5, Math.min(200, (Number($("#roiS" + q).value) || 2 * half[q]) / 2));
+    changePlan({ roi: { half } });
+  });
   $("#btnRoiCenter").addEventListener("click", () => { if (!S.grid) return; changePlan({ roi: { center: voxToWorld(S.cursor) } }); });
   $("#btnRoiTool").addEventListener("click", () => {
     if (S.which !== "overview") { setWhich("overview"); }
@@ -277,7 +293,7 @@
   });
   const params = () => ({ resolution: Number($("#setRes").value), motion: $("#setMotion").value, cycles: Number($("#setCycles").value),
     alpha: $("#setAlphaMode").value === "auto" ? null : Number($("#setAlpha").value || 1), regularizer: $("#setReg").value,
-    outlier_rejection: $("#setOutlier").checked, bias_correction: $("#setBias").checked });
+    outlier_rejection: $("#setOutlier").checked, bias_correction: $("#setBias").checked, denoise: $("#setDenoise").checked });
   $$("#secSettings select, #secSettings input").forEach(x => x.addEventListener("change", () => {
     $("#alphaField").hidden = $("#setAlphaMode").value === "auto";
     changePlan({ params: params() });
@@ -298,6 +314,7 @@
     const c = S.case, job = (c && c.job) || { status: "idle" };
     const running = job.status === "running" || job.status === "queued";
     $("#btnRun").disabled = !c || !c.plan || running;
+    $("#btnReoTool").disabled = !(c && c.result);
     $("#btnCancel").hidden = !(running && job.kind === "run");
     $("#runState").textContent = running ? `${job.kind} ${job.status} ${job.elapsed ? Math.round(job.elapsed) + " s" : ""}` : (c && c.result ? "done" : "");
     const ul = $("#steps"); ul.textContent = "";
@@ -310,7 +327,7 @@
       }
     }
     if (job.status === "error") msg("runMsg", job.error, "err");
-    else if (job.status === "cancelled") msg("runMsg", "Cancelled.");
+    else if (job.status === "canceled") msg("runMsg", "Canceled.");
     $("#log").textContent = (job.log || []).join("\n");
     $("#log").scrollTop = 1e9;
   }
@@ -346,19 +363,85 @@
     if (!has) { box.append(el("span", { class: "k", text: "-" }), el("span", { class: "v", text: "no reconstruction yet" })); return; }
     const s = r.summary;
     const kv = [["Voxel", `${fmt(s.voxel_mm, 2)} mm isotropic`], ["Grid", s.shape.join(" x ")], ["Stacks", s.stacks],
-                ["Slices used", `${s.slices_used} of ${s.slices}`], ["Regularisation", `alpha ${fmt(s.alpha, 2)}`], ["Time", `${Math.round(s.seconds)} s`],
+                ["Slices used", `${s.slices_used} of ${s.slices}`], ["Regularization", `alpha ${fmt(s.alpha, 2)}`], ["Time", `${Math.round(s.seconds)} s`],
                 ["Reoriented", r.reorient ? `${r.reorient.rx}, ${r.reorient.ry}, ${r.reorient.rz} deg` : "no"]];
     for (const [k, v] of kv) box.append(el("span", { class: "k", text: k }), el("span", { class: "v", text: v }));
     if (c.simulated) box.append(el("span", { class: "k bad", text: "Data" }), el("span", { class: "v bad", text: "SIMULATED" }));
-    const ro = r.reorient || { rx: 0, ry: 0, rz: 0 };
-    for (const a of ["rx", "ry", "rz"]) { $("#" + a).value = ro[a]; $("#" + a + "v").textContent = ro[a]; }
+    // the trial rotation follows the applied one only when the applied one changed (keeps unsaved adjustments)
+    const ro = r.reorient || { rx: 0, ry: 0, rz: 0 }, key = `${S.cid}:${ro.rx},${ro.ry},${ro.rz}`;
+    if (S.reo.applied !== key) { S.reo.applied = key; setReoAngles([ro.rx, ro.ry, ro.rz]); }
   }
-  for (const a of ["rx", "ry", "rz"]) $("#" + a).addEventListener("input", e => { $("#" + a + "v").textContent = e.target.value; });
+
+  // ---------------------------------------------------------------- reorientation (live preview on the views)
+  const m3mul = (A, B) => A.map(row => [0, 1, 2].map(j => row[0] * B[0][j] + row[1] * B[1][j] + row[2] * B[2][j]));
+  const rad = x => x * Math.PI / 180, deg = x => x * 180 / Math.PI;
+  function eulerToMat(rx, ry, rz) {  // as geometry.euler_deg_to_matrix: Rz @ Ry @ Rx, in the grid's own axes
+    const [a, b, c] = [rad(rx), rad(ry), rad(rz)];
+    const X = [[1, 0, 0], [0, Math.cos(a), -Math.sin(a)], [0, Math.sin(a), Math.cos(a)]];
+    const Y = [[Math.cos(b), 0, Math.sin(b)], [0, 1, 0], [-Math.sin(b), 0, Math.cos(b)]];
+    const Z = [[Math.cos(c), -Math.sin(c), 0], [Math.sin(c), Math.cos(c), 0], [0, 0, 1]];
+    return m3mul(Z, m3mul(Y, X));
+  }
+  function matToEuler(R) {
+    const ry = -Math.asin(Math.max(-1, Math.min(1, R[2][0])));
+    const r1 = x => Math.round(deg(x) * 10) / 10 + 0;
+    return [r1(Math.atan2(R[2][1], R[2][2])), r1(ry), r1(Math.atan2(R[1][0], R[0][0]))];
+  }
+  function rotPlane(a, b, phi) {  // rotation in the plane of grid axes a, b: e_a -> cos e_a + sin e_b
+    const Q = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], c = Math.cos(phi), s = Math.sin(phi);
+    Q[a][a] = c; Q[b][a] = s; Q[a][b] = -s; Q[b][b] = c; return Q;
+  }
+  const reoAngles = () => ["rx", "ry", "rz"].map(a => Number($("#" + a + "n").value) || 0);
+  function setReoAngles(ang, fromMatrix) {
+    ["rx", "ry", "rz"].forEach((a, i) => { $("#" + a).value = ang[i]; $("#" + a + "n").value = ang[i]; });
+    if (!fromMatrix) S.reo.rot = eulerToMat(...ang);
+  }
+  function reoApplied() { const ro = (S.case && S.case.result && S.case.result.reorient) || { rx: 0, ry: 0, rz: 0 }; return [ro.rx, ro.ry, ro.rz]; }
+  function reoPreview() {
+    if (S.which !== "result" || !S.grid || !S.case || !S.case.result || !S.case.result.native_grid) return false;
+    const a = reoAngles(), b = reoApplied();
+    return a.some((x, i) => Math.abs(x - b[i]) > 0.05);
+  }
+  function reoCenterVox() { return S.grid.shape.map(n => (n - 1) / 2); }
+  function reoMapper(view) {
+    // loaded-voxel coordinates u(c, r) = u0 + c uc + r ur of screen pixel (c, r) of the trial orientation:
+    // a grid of the same shape and spacing as the displayed one, centered on the native center, axes R_native @ rot
+    const nat = S.case.result.native_grid, An = nat.affine, hn = nat.spacing;
+    const midN = nat.shape.map(n => (n - 1) / 2);
+    const C = [0, 1, 2].map(r => An[r][0] * midN[0] + An[r][1] * midN[1] + An[r][2] * midN[2] + An[r][3]);
+    const Rn = m3mul([0, 1, 2].map(r => [0, 1, 2].map(c => An[r][c] / hn)), S.reo.rot);
+    const h = S.grid.spacing, mid = reoCenterVox();
+    const vToU = v => {
+      const d = [0, 1, 2].map(q => (v[q] - mid[q]) * h);
+      return worldToVox([0, 1, 2].map(r => C[r] + Rn[r][0] * d[0] + Rn[r][1] * d[1] + Rn[r][2] * d[2]));
+    };
+    const p0 = vToU(screenToVox(view, 0, 0)), p1 = vToU(screenToVox(view, 1, 0)), p2 = vToU(screenToVox(view, 0, 1));
+    return { u0: p0, uc: [0, 1, 2].map(q => p1[q] - p0[q]), ur: [0, 1, 2].map(q => p2[q] - p0[q]) };
+  }
+  for (const a of ["rx", "ry", "rz"]) {
+    $("#" + a).addEventListener("input", e => { $("#" + a + "n").value = e.target.value; S.reo.rot = eulerToMat(...reoAngles()); draw(); });
+    $("#" + a + "n").addEventListener("input", e => {
+      const v = Math.max(-180, Math.min(180, Number(e.target.value) || 0)); $("#" + a).value = v;
+      S.reo.rot = eulerToMat(...reoAngles()); draw();
+    });
+  }
+  function setReoTool(on) {
+    S.reo.tool = !!on && !!(S.case && S.case.result);
+    $("#btnReoTool").classList.toggle("primary", S.reo.tool);
+    if (S.reo.tool && S.which !== "result") setWhich("result");
+    $$(".view canvas").forEach(c => c.classList.toggle("rot", S.reo.tool));
+    if (S.reo.tool) toast("Drag on a view to turn the volume about that view's axis; Shift: fine. Apply resamples it.");
+    draw();
+  }
+  $("#btnReoTool").addEventListener("click", () => setReoTool(!S.reo.tool));
   async function doReorient(zero) {
-    const body = zero ? { rx: 0, ry: 0, rz: 0 } : { rx: Number($("#rx").value), ry: Number($("#ry").value), rz: Number($("#rz").value) };
+    const [rx, ry, rz] = zero ? [0, 0, 0] : reoAngles();
     msg("reoMsg", "Resampling...");
-    try { await api("POST", `/api/cases/${S.cid}/reorient`, body); msg("reoMsg", ""); await refreshCase(); await loadGrid("result"); }
-    catch (e) { msg("reoMsg", e.message, "err"); }
+    try {
+      await api("POST", `/api/cases/${S.cid}/reorient`, { rx, ry, rz }); msg("reoMsg", "");
+      if (zero) setReoAngles([0, 0, 0]);
+      await refreshCase(); await loadGrid("result");
+    } catch (e) { msg("reoMsg", e.message, "err"); }
   }
   $("#btnReorient").addEventListener("click", () => doReorient(false));
   $("#btnReorientReset").addEventListener("click", () => doReorient(true));
@@ -434,10 +517,11 @@
     d.append(el("h1", { text: `Reconstruction report - ${r.case_id}` }), el("div", { class: "sub", text: `SliceWeave ${r.version}, ${r.finished}` }));
     if (r.simulated) d.append(el("div", { class: "banner-sim", text: "SIMULATED DATA: every number below is a software test, not a patient result." }));
     const p = r.params;
-    d.append(card("Settings", kvTable([["Mode", p.mode], ["Output voxel", `${r.grid.spacing} mm isotropic`], ["Grid", r.grid.shape.join(" x ")],
+    d.append(card("Settings", kvTable([["Mode", ({ adult: "adult/pediatric", flair: "2-D FLAIR (adult/pediatric)", fetal: "fetal" })[p.mode] || p.mode], ["Output voxel", `${r.grid.spacing} mm isotropic`], ["Grid", r.grid.shape.join(" x ")],
       ["Motion correction", { none: "none", stack: "between series (rigid, per stack)", slice: "slice-to-volume (stacks, packets, then single slices)" }[p.motion]],
-      ["Cycles", p.cycles], ["Regularisation", `${p.regularizer}, alpha ${fmt(r.alpha_used, 2)}${p.alpha === null ? " (automatic from the noise" + (r.alpha_motion && Math.abs(r.alpha_motion - r.alpha_used) > 1e-6 ? `; ${fmt(r.alpha_motion, 2)} for the motion-correction volumes` : "") + ")" : ""}`],
+      ["Cycles", p.cycles], ["Regularization", `${p.regularizer}, alpha ${fmt(r.alpha_used, 2)}${p.alpha === null ? " (automatic from the noise" + (r.alpha_motion && Math.abs(r.alpha_motion - r.alpha_used) > 1e-6 ? `; ${fmt(r.alpha_motion, 2)} for the motion-correction volumes` : "") + ")" : ""}`],
       ["Outlier rejection", p.outlier_rejection ? `on (NCC threshold ${p.ncc_threshold})` : "off"], ["Intensity correction", p.bias_correction ? "on" : "off"],
+      ["Denoising", r.denoise ? `non-local means (noise ${fmt(r.denoise.noise, 4)}, strength ${r.denoise.strength}, ${r.denoise.seconds} s)` : "off"],
       ["Region", `${r.roi.shape}, ${r.roi.half.map(h => (2 * h).toFixed(0)).join(" x ")} mm`]]),
       el("p", { class: "how" }, el("b", { text: "How to read this. " }), "The volume is estimated from the acquired slices; detail finer than the acquired in-plane resolution cannot be created, and through-plane detail is recovered from the other orientations. Check the result against the original 2-D series, especially where slices were excluded.")));
     const t = el("table", { class: "t" });
@@ -543,6 +627,7 @@
   function roiVox() {
     // the region in voxel coordinates of the current grid (only when the grid shares its axes)
     const plan = S.case && S.case.plan; if (!plan || !S.grid || S.which !== "overview") return null;
+    if (S.roiEdit) return S.roiEdit;
     const r = plan.roi, h = S.grid.spacing;
     return { c: worldToVox(r.center), h: r.half.map(x => x / h), shape: r.shape };
   }
@@ -562,7 +647,28 @@
       oc.width = w; oc.height = h;
       const octx = oc.getContext("2d"), img = octx.createImageData(w, h), px = img.data;
       const base = S.layers.find(l => l.id === S.base && l.data);
-      if (base) {
+      const preview = base && reoPreview();
+      if (base && preview) {
+        // trial reorientation: trilinear samples of the loaded volume along the rotated axes
+        const [lo, hi] = base.win, d = base.data, inv = 255 / Math.max(hi - lo, 1e-3);
+        const [nx, ny, nz] = S.grid.shape, sy = nx, sz = nx * ny, { u0, uc, ur } = reoMapper(view);
+        for (let r = 0; r < h; r++) {
+          let x = u0[0] + r * ur[0], y = u0[1] + r * ur[1], z = u0[2] + r * ur[2];
+          for (let c = 0; c < w; c++, x += uc[0], y += uc[1], z += uc[2]) {
+            let val = 0;
+            if (x >= 0 && y >= 0 && z >= 0 && x <= nx - 1 && y <= ny - 1 && z <= nz - 1) {
+              const i0 = Math.min(Math.floor(x), nx - 2), j0 = Math.min(Math.floor(y), ny - 2), k0 = Math.min(Math.floor(z), nz - 2);
+              const fx = x - i0, fy = y - j0, fz = z - k0, o0 = i0 + sy * j0 + sz * k0;
+              const c00 = d[o0] + fx * (d[o0 + 1] - d[o0]), c10 = d[o0 + sy] + fx * (d[o0 + sy + 1] - d[o0 + sy]);
+              const c01 = d[o0 + sz] + fx * (d[o0 + sz + 1] - d[o0 + sz]), c11 = d[o0 + sz + sy] + fx * (d[o0 + sz + sy + 1] - d[o0 + sz + sy]);
+              const c0 = c00 + fy * (c10 - c00), c1 = c01 + fy * (c11 - c01);
+              val = c0 + fz * (c1 - c0);
+            }
+            let g = (val - lo) * inv; g = g < 0 ? 0 : g > 255 ? 255 : g;
+            const o = (r * w + c) * 4; px[o] = px[o + 1] = px[o + 2] = g; px[o + 3] = 255;
+          }
+        }
+      } else if (base) {
         const [lo, hi] = base.win, d = base.data, inv = 255 / Math.max(hi - lo, 1e-3);
         for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
           const [i, j, k] = screenToVox(view, c, r);
@@ -576,6 +682,7 @@
       ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(oc, dx, dy, dw, dh);
       const roi = S.showRoi && roiVox();
       if (roi) drawRoi(ctx, view, roi, sc, dx, dy);
+      if (S.which === "result" && (S.reo.tool || preview)) drawReoGuides(ctx, view, sc, dx, dy, dw, dh, preview);
       if (S.cross) {
         const [cx, cy] = voxToScreen(view, ...S.cursor);
         ctx.strokeStyle = "rgba(224,160,48,.7)"; ctx.lineWidth = 1;
@@ -614,6 +721,67 @@
       if (!inside) ctx.setLineDash([4, 4]);
       ctx.strokeRect(dx + x0 * sc, dy + y0 * sc, (x1 - x0) * sc, (y1 - y0) * sc); ctx.setLineDash([]);
     }
+    if (roiEditable()) {
+      // handles: corners and edge midpoints resize, the center square moves
+      const X0 = dx + x0 * sc, X1 = dx + x1 * sc, Y0 = dy + y0 * sc, Y1 = dy + y1 * sc, Xm = (X0 + X1) / 2, Ym = (Y0 + Y1) / 2;
+      ctx.fillStyle = "rgba(127,184,255,.95)";
+      for (const [x, y] of [[X0, Y0], [X1, Y0], [X0, Y1], [X1, Y1], [Xm, Y0], [Xm, Y1], [X0, Ym], [X1, Ym]]) ctx.fillRect(x - 3, y - 3, 6, 6);
+      ctx.strokeStyle = "rgba(127,184,255,.95)"; ctx.lineWidth = 1.5; ctx.strokeRect(Xm - 5, Ym - 5, 10, 10);
+      ctx.beginPath(); ctx.moveTo(Xm - 3, Ym); ctx.lineTo(Xm + 3, Ym); ctx.moveTo(Xm, Ym - 3); ctx.lineTo(Xm, Ym + 3); ctx.stroke();
+      if (S.roiEdit) {
+        const mm = [a, b].map(q => (2 * roi.h[q] * S.grid.spacing).toFixed(0));
+        ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = "#cfe3ff";
+        ctx.fillText(`${mm[0]} x ${mm[1]} mm`, X0 + 4, Math.max(Y0 - 6, 12));
+      }
+    }
+  }
+  function roiEditable() {
+    return !!(S.showRoi && S.which === "overview" && S.grid && S.case && S.case.plan && S.tool !== "roi" && !S.reo.tool);
+  }
+  function roiRectScreen(view, v) {
+    // the region's rectangle on this view in canvas pixels, and the voxel bound each side stands for
+    const roi = roiVox(), m = v._map; if (!roi || !m) return null;
+    const [a, b] = view === "axial" ? [0, 1] : view === "coronal" ? [0, 2] : [1, 2];
+    const lo = S.cursor.slice(), hi = S.cursor.slice();
+    for (const q of [a, b]) { lo[q] = roi.c[q] - roi.h[q]; hi[q] = roi.c[q] + roi.h[q]; }
+    const p1 = voxToScreen(view, ...lo), p2 = voxToScreen(view, ...hi);
+    const X = [p1[0], p2[0]].map(x => m.dx + (x + .5) * m.sc), Y = [p1[1], p2[1]].map(y => m.dy + (y + .5) * m.sc);
+    return { roi, a, b, X0: Math.min(...X), X1: Math.max(...X), Y0: Math.min(...Y), Y1: Math.max(...Y),
+             left: X[0] < X[1] ? "lo" : "hi", top: Y[0] < Y[1] ? "lo" : "hi" };
+  }
+  function roiHit(view, v, ev) {
+    if (!roiEditable()) return null;
+    const R = roiRectScreen(view, v); if (!R) return null;
+    const rect = $("canvas", v).getBoundingClientRect(), mx = ev.clientX - rect.left, my = ev.clientY - rect.top, tol = 7;
+    const inY = my > R.Y0 - tol && my < R.Y1 + tol, inX = mx > R.X0 - tol && mx < R.X1 + tol;
+    const sx = Math.abs(mx - R.X0) <= tol && inY ? R.left : Math.abs(mx - R.X1) <= tol && inY ? (R.left === "lo" ? "hi" : "lo") : null;
+    const sy = Math.abs(my - R.Y0) <= tol && inX ? R.top : Math.abs(my - R.Y1) <= tol && inX ? (R.top === "lo" ? "hi" : "lo") : null;
+    const cx = (mx - R.X0) <= tol ? -1 : (R.X1 - mx) <= tol ? 1 : 0, cy = (my - R.Y0) <= tol ? -1 : (R.Y1 - my) <= tol ? 1 : 0;
+    if (sx || sy) {
+      const cursor = sx && sy ? (cx === cy ? "nwse-resize" : "nesw-resize") : sx ? "ew-resize" : "ns-resize";
+      return { mode: "resize", sx, sy, a: R.a, b: R.b, roi: R.roi, cursor };
+    }
+    if (Math.abs(mx - (R.X0 + R.X1) / 2) <= 9 && Math.abs(my - (R.Y0 + R.Y1) / 2) <= 9) return { mode: "move", a: R.a, b: R.b, roi: R.roi, cursor: "move" };
+    return null;
+  }
+  function drawReoGuides(ctx, view, sc, dx, dy, dw, dh, preview) {
+    // fixed target axes through the rotation center: turn the anatomy until it lines up with them
+    const mid = reoCenterVox(), [x, y] = voxToScreen(view, ...mid), X = dx + (x + .5) * sc, Y = dy + (y + .5) * sc;
+    ctx.save();
+    if (S.reo.tool) {
+      const rr = 0.42 * Math.min(dw, dh);
+      ctx.strokeStyle = "rgba(120,220,255,.85)"; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(dx, Y); ctx.lineTo(dx + dw, Y); ctx.moveTo(X, dy); ctx.lineTo(X, dy + dh); ctx.stroke();
+      ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.arc(X, Y, rr, 0, 2 * Math.PI); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(120,220,255,.95)";
+      for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.beginPath(); ctx.arc(X + ux * rr, Y + uy * rr, 4, 0, 2 * Math.PI); ctx.fill(); }
+    }
+    if (preview) {
+      const [rx, ry, rz] = reoAngles();
+      ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = "rgba(120,220,255,.95)";
+      ctx.fillText(`preview ${rx}, ${ry}, ${rz} deg - Apply to resample`, dx + 6, dy + dh - 8);
+    }
+    ctx.restore();
   }
   function renderCursor() {
     const box = $("#cursor"); box.textContent = ""; const line = $("#cursorLine");
@@ -629,6 +797,11 @@
       if (l.id === S.base) lineVal = v.toFixed(0);
     }
     line.textContent = `RAS ${wpos.map(x => x.toFixed(1)).join(", ")}   ${lineVal}`;
+  }
+  function canvasPosF(v, ev) {  // continuous image-pixel position (pixel centers at .5)
+    const m = v._map; if (!m) return null;
+    const rect = $("canvas", v).getBoundingClientRect();
+    return [(ev.clientX - rect.left - m.dx) / m.sc, (ev.clientY - rect.top - m.dy) / m.sc];
   }
   function canvasPos(v, ev, clamp) {
     const m = v._map; if (!m) return null;
@@ -647,7 +820,25 @@
       const pos = canvasPos(v, ev); if (!pos) return;
       if (ev.button === 2) { const b = S.layers.find(l => l.id === S.base); drag = { kind: "wl", x: ev.clientX, y: ev.clientY, win: b && b.win ? b.win.slice() : null }; return; }
       if (S.tool === "roi" && S.which === "overview") { v._drag = [pos, pos]; drag = { kind: "roi" }; return; }
+      if (ev.button === 0 && S.reo.tool && S.which === "result") {
+        const rect = cv.getBoundingClientRect(), m = v._map, [x, y] = voxToScreen(view, ...reoCenterVox());
+        const X = rect.left + m.dx + (x + .5) * m.sc, Y = rect.top + m.dy + (y + .5) * m.sc;
+        drag = { kind: "rot", X, Y, a0: Math.atan2(ev.clientY - Y, ev.clientX - X), rot0: S.reo.rot,
+                 axes: view === "axial" ? [0, 1] : view === "coronal" ? [0, 2] : [1, 2] };
+        return;
+      }
+      const hit = ev.button === 0 && roiHit(view, v, ev);
+      if (hit) {
+        const f = canvasPosF(v, ev);
+        drag = { kind: "roiEdit", hit, v0: screenToVox(view, f[0] - .5, f[1] - .5), c0: hit.roi.c.slice(), h0: hit.roi.h.slice() };
+        return;
+      }
       S.cursor = screenToVox(view, ...pos); drag = { kind: "nav" }; draw();
+    });
+    cv.addEventListener("mousemove", ev => {
+      if (drag) return;
+      const hit = roiHit(view, v, ev);
+      cv.style.cursor = hit ? hit.cursor : (S.reo.tool && S.which === "result" ? "grab" : "");
     });
     window.addEventListener("mousemove", ev => {
       if (!drag) return;
@@ -656,11 +847,40 @@
         const c = (drag.win[0] + drag.win[1]) / 2 - dym * 0.5, w = Math.max(2, (drag.win[1] - drag.win[0]) + dxm * 0.8);
         b.win = [c - w / 2, c + w / 2]; draw(); return;
       }
+      if (drag.kind === "rot") {
+        let d = Math.atan2(ev.clientY - drag.Y, ev.clientX - drag.X) - drag.a0;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        if (ev.shiftKey) d *= 0.2;
+        // the anatomy follows the mouse: show at screen angle t what was at t - d
+        S.reo.rot = m3mul(drag.rot0, rotPlane(drag.axes[0], drag.axes[1], -d));
+        setReoAngles(matToEuler(S.reo.rot), true); draw(); return;
+      }
+      if (drag.kind === "roiEdit") {
+        const f = canvasPosF(v, ev); if (!f) return;
+        const vv = screenToVox(view, f[0] - .5, f[1] - .5), { hit } = drag, c = drag.c0.slice(), hh = drag.h0.slice();
+        const minH = 5 / S.grid.spacing;  // 10 mm at least
+        if (hit.mode === "move") for (const q of [hit.a, hit.b]) c[q] = drag.c0[q] + (vv[q] - drag.v0[q]);
+        else for (const [q, side] of [[hit.a, hit.sx], [hit.b, hit.sy]]) {
+          if (!side) continue;
+          let lo = drag.c0[q] - drag.h0[q], hi = drag.c0[q] + drag.h0[q];
+          if (side === "lo") lo = Math.min(vv[q], hi - 2 * minH); else hi = Math.max(vv[q], lo + 2 * minH);
+          c[q] = (lo + hi) / 2; hh[q] = (hi - lo) / 2;
+        }
+        S.roiEdit = { c, h: hh, shape: hit.roi.shape }; draw(); return;
+      }
       const pos = canvasPos(v, ev, true); if (!pos) return;
       if (drag.kind === "nav") { S.cursor = screenToVox(view, ...pos); draw(); }
       else if (drag.kind === "roi") { v._drag[1] = pos; draw(); }
     });
     window.addEventListener("mouseup", async () => {
+      if (drag && drag.kind === "roiEdit") {
+        const e = S.roiEdit; drag = null;
+        if (e) {
+          try { await changePlan({ roi: { center: voxToWorld(e.c), half: e.h.map(x => x * S.grid.spacing) } }); }
+          finally { S.roiEdit = null; draw(); }
+        }
+        return;
+      }
       if (drag && drag.kind === "roi" && v._drag) {
         const [p1, p2] = v._drag; v._drag = null;
         if (Math.abs(p1[0] - p2[0]) > 3 && Math.abs(p1[1] - p2[1]) > 3) await setRoiFromRect(view, p1, p2);
@@ -691,7 +911,11 @@
       S.cursor[ax] = Math.max(0, Math.min(S.grid.shape[ax] - 1, S.cursor[ax] + (ev.key === "ArrowUp" ? 1 : -1))); draw(); ev.preventDefault();
     }
     if (ev.key === "b" || ev.key === "B") flip();
+    if ((ev.key === "x" || ev.key === "X") && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      S.cross = !S.cross; $("#optCross").checked = S.cross; draw();
+    }
     if (ev.key === "Escape" && S.tool === "roi") { S.tool = "nav"; $("#btnRoiTool").classList.remove("primary"); }
+    if (ev.key === "Escape" && S.reo.tool) setReoTool(false);
   });
 
   init().catch(e => toast(e.message, true));

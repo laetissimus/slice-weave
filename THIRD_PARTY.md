@@ -2,7 +2,7 @@
 
 ## Libraries in the executable
 
-| Component | Licence | Use |
+| Component | License | Use |
 |---|---|---|
 | Python 3 | PSF | runtime |
 | NumPy | BSD-3-Clause | arrays |
@@ -18,7 +18,7 @@
 
 * `sliceweave/web/fonts/`: Barlow, Barlow Semi Condensed and IBM Plex Mono (SIL Open Font
   License 1.1, `OFL.txt`).
-* `tests/data/dicom/`: small DICOM test files from pydicom's test data (licence in
+* `tests/data/dicom/`: small DICOM test files from pydicom's test data (license in
   `LICENSE-pydicom.txt`). Used by the tests only.
 
 No patient data, atlases or trained models are bundled. The demo and the self-test use

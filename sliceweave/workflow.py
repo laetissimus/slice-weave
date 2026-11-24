@@ -21,7 +21,7 @@ from .recon import FLAIR_SLICE_MSG, MODE_LABELS, MODES, ROI, Params, Reconstruct
 from .store import CaseStore, StoreError, now_iso
 
 EDITABLE = ("resolution", "motion", "cycles", "alpha", "regularizer", "outlier_rejection", "bias_correction",
-            "ncc_threshold", "final_iterations", "psf_through", "mask_output")
+            "ncc_threshold", "final_iterations", "psf_through", "mask_output", "denoise", "denoise_strength")
 
 
 # ------------------------------------------------------------------ loading
@@ -193,8 +193,10 @@ def update_stacks(store: CaseStore, cid: str, changes: list[dict]) -> dict:
 def _coerce(k, v):
     if k in ("cycles", "final_iterations"):
         return int(v)
-    if k in ("outlier_rejection", "bias_correction", "mask_output"):
+    if k in ("outlier_rejection", "bias_correction", "mask_output", "denoise"):
         return bool(v)
+    if k == "denoise_strength":
+        return min(max(float(v), 0.25), 4.0)
     if k == "alpha":
         return None if v in (None, "", "auto") else float(v)
     if k in ("motion", "regularizer"):
@@ -295,7 +297,7 @@ def _clear_cache(store: CaseStore, cid: str, prefix: str):
 
 # ----------------------------------------------------------------- reorient
 def reorient(store: CaseStore, cid: str, rx: float, ry: float, rz: float) -> dict:
-    """Rotate the result (about the centre of the volume, in its own axes) and resample it with
+    """Rotate the result (about the center of the volume, in its own axes) and resample it with
     cubic splines, e.g. to show a fetal brain in standard planes. (0, 0, 0) restores the original."""
     case = store.load(cid)
     if not case.get("result"):

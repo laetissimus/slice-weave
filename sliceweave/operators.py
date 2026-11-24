@@ -11,11 +11,11 @@ pixel position includes the slice's rigid motion correction.
 
 Implementation: slices are grouped by orientation (within ``group_deg`` degrees). For a group
 the PSF is applied to the whole volume in the Fourier domain (exact for any orientation),
-then sampled at the pixel centres with trilinear interpolation (a sparse matrix):
+then sampled at the pixel centers with trilinear interpolation (a sparse matrix):
 
     A_g x = P_g F^-1[ G_g . F[x] ],      A_g^T r = F^-1[ G_g . F[P_g^T r] ]
 
-The super-resolution volume minimises
+The super-resolution volume minimizes
 
     sum_p w_p (y_p / s_p - (A x)_p)^2 + lambda * ||grad x||^2      (first-order Tikhonov)
 
@@ -198,7 +198,7 @@ def _freq_grid(shape):
 
 
 def _gauss_tf(kfreq, cov) -> np.ndarray:
-    """Fourier transform of a normalised Gaussian with covariance ``cov`` (voxel units)."""
+    """Fourier transform of a normalized Gaussian with covariance ``cov`` (voxel units)."""
     fx, fy, fz = kfreq
     c = np.asarray(cov, np.float64)
     a = -2.0 * np.pi ** 2
@@ -249,7 +249,7 @@ def interp_matrix(q: np.ndarray, shape) -> tuple[sparse.csr_matrix, np.ndarray]:
     return P, keep
 
 
-# ------------------------------------------------------------------ regulariser
+# ------------------------------------------------------------------ regularizer
 def grad_norm_op(x: np.ndarray, w=None) -> np.ndarray:
     """D^T W D x with forward differences and Neumann boundaries (W per axis or None)."""
     out = np.zeros_like(x)

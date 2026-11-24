@@ -21,7 +21,7 @@ Rousseau et al. (2006), Jiang et al. (2007), Gholipour et al. (2010), Kuklisova-
   (`AcquisitionMatrixPE`, `ReconMatrixPE`, `PhaseEncodingDirection`, `BaseResolution`). It is
   never taken finer than the pixel, and an implausible value (more than 4 pixels) is ignored.
   Without these fields the pixel size is used.
-* Acquisition order (for packets and temporal regularisation) comes from DICOM
+* Acquisition order (for packets and temporal regularization) comes from DICOM
   `AcquisitionTime`; without it an interleaved order (even slices, then odd slices) is assumed.
 * Each slice s of stack k has a rigid correction `T[k][s]` (world -> world), a scalar intensity
   scale, and each stack a smooth multiplicative bias field.
@@ -36,7 +36,7 @@ FWHM = slice thickness through-plane (Kuklisova-Murgasova 2012; Ebner 2020).
 
 Implementation: slices are grouped by orientation (within 12 degrees). For each group the PSF
 is applied to the whole volume in the Fourier domain (exact for any orientation; the trilinear
-interpolation's own smoothing is subtracted), then the volume is sampled at the pixel centres with
+interpolation's own smoothing is subtracted), then the volume is sampled at the pixel centers with
 trilinear interpolation (one sparse matrix per group). The adjoint applies the same steps in
 reverse. A dot-product test of the operator and its adjoint is part of the test suite.
 
@@ -50,16 +50,17 @@ pixels for a 1 mm output), with the PSF widened accordingly.
 * `R` is an edge-preserving Huber penalty on the forward differences (iteratively reweighted,
   3 reweightings) or first-order Tikhonov. Default: Huber.
 * `lambda = alpha * mean(diag(A^T W A))`, so alpha does not depend on the image scale or the
-  number of stacks. With "Automatic" regularisation alpha = 0.1 + 65 x (relative noise), where the
+  number of stacks. With "Automatic" regularization alpha = 0.1 + 65 x (relative noise), where the
   relative noise is estimated from each stack (median absolute 2-D Laplacian, Immerkaer 1996)
   divided by the median tissue signal. For interpolated images the Laplacian is computed on
-  pixels sampled at about the acquired spacing: zero-filled interpolation correlates neighbouring
+  pixels sampled at about the acquired spacing: zero-filled interpolation correlates neighboring
   pixels and the pixel-level estimate would read the noise up to 10 times too low. The coefficient
   was chosen on simulated stacks with known truth (docs/VALIDATION.md).
 * The volumes that serve as registration targets use this weight; the final volume uses a
-  fraction of it: adult / paediatric T2 0.25 x (keeps the sulci and the cortical ribbon; docs/
-  VALIDATION.md, "Grey-white matter and sulci"), FLAIR 0.35 x (keeps the contrast of small
-  lesions; "2-D FLAIR"), fetal 1.0 x. A fixed alpha applies to all volumes.
+  fraction of it: adult/pediatric T2 0.25 x (keeps the sulci and the cortical ribbon; docs/
+  VALIDATION.md, "Gray-white matter and sulci"), FLAIR 0.35 x (keeps the contrast of small
+  lesions; "2-D FLAIR"), fetal 1.0 x. With the denoising step (default for adult/pediatric T2)
+  the final weight is a further 0.4 x. A fixed alpha applies to all volumes.
 * Solver: preconditioned conjugate gradients (Jacobi preconditioner), non-negativity by
   clipping at the end.
 * Output masking: voxels with too little data (coverage `A^T W 1` below 15 % of the typical
@@ -71,8 +72,8 @@ same corrected slices, without deconvolution. It is the natural baseline for com
 ## 4. Registration
 
 A set of pixels (a stack, a packet or one slice) with positions p and values y is aligned to
-the current volume by a rigid D minimising `sum w (y - a V(D p) - b)^2`, with a, b re-fitted at
-every step (equivalent to normalised cross-correlation; anti-correlated solutions are refused),
+the current volume by a rigid D minimizing `sum w (y - a V(D p) - b)^2`, with a, b re-fitted at
+every step (equivalent to normalized cross-correlation; anti-correlated solutions are refused),
 V the volume blurred with the slices' PSF, and Huber weights on the residuals. Gauss-Newton steps
 with Marquardt damping and step halving; coarse-to-fine (extra Gaussian smoothing of both the
 volume and the slices, e.g. 4 -> 2 -> 1 mm). An update is kept only if it improves the NCC at
@@ -81,9 +82,9 @@ cycle).
 
 ## 5. Pipeline
 
-1. **Prepare.** Crop each stack to the region (+ margin), bin small pixels, normalise each
+1. **Prepare.** Crop each stack to the region (+ margin), bin small pixels, normalize each
    stack by its median tissue signal, estimate noise, flag slices much darker or brighter than
-   their neighbours (global signal loss) as initially excluded.
+   their neighbors (global signal loss) as initially excluded.
 2. **Stacks.** Initial volume (adult: reference stack only; fetal: all stacks), then rigid
    stack-to-volume registration of every other stack. The reference stack defines the frame.
 3. **First SRR** from all stacks.
@@ -93,12 +94,12 @@ cycle).
      then packets (2, then 4 per stack) of slices acquired together; cycle 2 smaller packets
      (8 per stack) then single slices; later cycles single slices, coarse to fine.
      After each slice pass: (a) temporal repair - a slice whose pose differs from the median of its
-     +/- 2 neighbours in acquisition time by more than 6 deg or 4 mm gets that median;
+     +/- 2 neighbors in acquisition time by more than 6 deg or 4 mm gets that median;
      (b) temporal smoothing - each slice's motion parameters are replaced by the median of itself
-     and its two time neighbours (a median keeps sudden jumps). The reference stack is then
+     and its two time neighbors (a median keeps sudden jumps). The reference stack is then
      re-anchored so the volume frame does not drift.
    * Per-slice intensity scale (least squares against the simulated slice) and a smooth bias
-     field per stack (normalised Gaussian convolution of the log ratio, 20 mm).
+     field per stack (normalized Gaussian convolution of the log ratio, 20 mm).
    * Outlier slices: excluded if the NCC between the slice and the simulated slice is below a
      threshold (fetal 0.5, rising by 0.1 per cycle to 0.7; adult: only robust outliers, below
      min(0.6, median - 4 MAD)), or if the slice scale is outside 0.4-2.5. Excluded slices are
@@ -107,10 +108,19 @@ cycle).
    With 0 cycles, or without motion correction, one pass of intensity correction and the outlier
    test still runs (when switched on). Effect of the number of cycles: docs/VALIDATION.md.
 5. **Final SRR** with more iterations, masking, and the average baseline.
+6. **Denoising** (on by default for adult/pediatric T2; off for FLAIR and fetal, where it lowered
+   lesion contrast and SSIM on the phantoms; docs/VALIDATION.md): non-local means (Buades, Coll and Morel 2005) on the final volume.
+   Each voxel becomes a weighted mean of the voxels in a 5 x 5 x 5 window; the weight of a
+   neighbor is exp(-max(d^2 - 2 sigma^2, 0) / h^2), where d^2 is the mean squared difference of
+   the 3 x 3 x 3 patches around the two voxels, sigma the noise of the volume (Laplacian estimate
+   inside the brain) and h = 0.4 sigma x strength (1.5). Only voxels with similar surroundings
+   are averaged, so edges, the cortical ribbon and small structures are kept. Because the noise
+   is removed here, the final SRR uses 0.4 x its weight (less smoothing across the cortex and
+   the sulci). Processed in slabs, so memory stays at a few copies of one slab.
 
 ## 6. Modes
 
-| | Adult / paediatric T2 | 2-D FLAIR | Fetal |
+| | Adult/pediatric T2 | 2-D FLAIR | Fetal |
 |---|---|---|---|
 | Series | single-shot T2 | 2-D FLAIR (multi-shot inversion recovery) | single-shot T2 |
 | Region | head, automatic | head, automatic | user-placed ellipsoid or brain masks |
@@ -118,7 +128,8 @@ cycle).
 | Output voxel | 1.0 mm | 1.0 mm | 0.8 mm |
 | Initial volume | reference stack | reference stack | all stacks |
 | Outlier slices | only robust outliers | only robust outliers | NCC 0.5 -> 0.7 |
-| Final regularisation | 0.25 x noise-calibrated | 0.35 x noise-calibrated | noise-calibrated |
+| Final regularization | 0.25 x noise-calibrated | 0.35 x noise-calibrated | noise-calibrated |
+| Denoising (default) | on: final weight x 0.4, then non-local means | off | off |
 
 **Why FLAIR is handled differently.** A single-shot slice is acquired in under a second, so it is
 a snapshot with one position, and slices can be repositioned one by one. A multi-shot 2-D FLAIR
@@ -143,7 +154,7 @@ three planes.
 
 The grid axes are the reference stack's axes, permuted and flipped to be closest to R, A and S
 (so an AC-PC-angled axial reference gives an AC-PC-angled volume). The optional reorientation
-step rotates the result about its centre in its own axes and resamples it with cubic B-splines;
+step rotates the result about its center in its own axes and resamples it with cubic B-splines;
 the affine (NIfTI) and ImageOrientationPatient (DICOM) always describe the true position in the
 scanner frame. For fetal studies this lets the volume be shown in fetal standard planes.
 
@@ -151,7 +162,7 @@ scanner frame. For fetal studies this lets the volume be shown in fetal standard
 
 The viewer opens every image in a *Brain* window: the most common intensity inside the head
 above 12 % of the bright end (the parenchyma peak of the histogram) is found, and the window runs
-from 0.4 x to 1.8 x that value. Grey and white matter then spread over the grey levels and CSF
+from 0.4 x to 1.8 x that value. Gray and white matter then spread over the gray levels and CSF
 is near white, instead of the parenchyma being squeezed into the lower half by bright CSF.
 *Full range* (0 to the 99th percentile) and right-drag (width, level) remain. DICOM exports carry
 both windows (BRAIN first, then FULL; WindowCenterWidthExplanation), so PACS opens the brain
@@ -159,16 +170,20 @@ window. The window changes the display only, not the stored values.
 
 ## 9. What it does not do (yet)
 
-* No automatic fetal brain localisation/segmentation: the region is placed by the user, or
+* No automatic fetal brain localization/segmentation: the region is placed by the user, or
   brain masks from another tool (e.g. a NIfTI per stack named `*mask*`) are used.
 * No deformable (non-rigid) motion, no slice-profile estimation, no learned priors.
-* No correction of motion within a multi-shot (FLAIR) series, and no modelling of inflow or
-  CSF-pulsation artefacts, which differ between planes (they are down-weighted as outliers at best).
+* No correction of motion within a multi-shot (FLAIR) series, and no modeling of inflow or
+  CSF-pulsation artifacts, which differ between planes (they are down-weighted as outliers at best).
 * No atlas-based standard-plane reorientation (manual rotation only).
 * CPU only; fetal cases take minutes.
 
 ## References
 
+* Buades A, Coll B, Morel JM. A non-local algorithm for image denoising. CVPR 2005;2:60-65; and
+  Non-local means denoising. Image Processing On Line 2011;1:208-212.
+* Coupe P, et al. An optimized blockwise nonlocal means denoising filter for 3-D magnetic
+  resonance images. IEEE TMI 2008;27:425-441.
 * Rousseau F, et al. Registration-based approach for reconstruction of high-resolution in utero
   fetal MR brain images. Acad Radiol 2006;13:1072-1081.
 * Jiang S, et al. MRI of moving subjects using multislice snapshot images with volume

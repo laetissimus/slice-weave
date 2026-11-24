@@ -9,7 +9,21 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-VERSION = "1.1.0"
+# Version = the GitHub release tag (v0.1.1 -> "0.1.1"). The build stamps it into _version.py: from the
+# release tag when the release workflow builds, otherwise from `git describe` ("0.1.1+3.g1a2b3c4": 3
+# commits after v0.1.1). Running from source without a stamp shows the last release + "+dev".
+BASE_VERSION = "0.1.1"
+
+
+def _version() -> str:
+    try:
+        from ._version import VERSION as stamped  # written by packaging/build_windows.py
+        return str(stamped)
+    except ImportError:
+        return BASE_VERSION + "+dev"
+
+
+VERSION = _version()
 NAME = "SliceWeave"
 RESEARCH_BANNER = "RESEARCH USE ONLY - NOT FOR CLINICAL DIAGNOSIS"
 

@@ -12,9 +12,9 @@ Policy (see SECURITY.md):
 * The case is known only by a coded study ID entered by the user. The tool
   refuses IDs that look like an MRN or that contain an identifier found in
   the data. No hash or "fingerprint" of patient identifiers is stored.
-* Series that may carry burned-in identifiers (secondary capture, colour,
+* Series that may carry burned-in identifiers (secondary capture, color,
   BurnedInAnnotation=YES) are refused. Overlay planes are never imported.
-  Pixel text inside ordinary greyscale MR images is NOT detected (no OCR).
+  Pixel text inside ordinary grayscale MR images is NOT detected (no OCR).
 """
 from __future__ import annotations
 

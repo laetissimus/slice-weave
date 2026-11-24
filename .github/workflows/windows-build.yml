@@ -25,6 +25,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags: the version shown by the program comes from the release tag
 
       - uses: actions/setup-python@v5
         with:
@@ -45,6 +47,10 @@ jobs:
         run: python -m sliceweave selftest
 
       - name: Build SliceWeave.exe and portable folder
+        env:
+          # a release (or a manual run for a release) stamps its tag as the version; other builds
+          # use `git describe` (last tag + commits)
+          SLICEWEAVE_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag || '' }}
         run: python packaging/build_windows.py
 
       - name: Block all outbound network traffic for both executables (Windows Firewall)
@@ -104,6 +110,14 @@ jobs:
       - name: Check the checksums of the tested files
         working-directory: artifact/dist
         run: sha256sum -c SHA256SUMS.txt
+
+      - name: Check that the program reports the release version
+        env:
+          TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          v=$(python3 -c "import json; print(json.load(open('artifact/dist/build-report.json'))['sliceweave_version'])")
+          echo "tag $TAG, program $v"
+          test "v$v" = "$TAG" -o "$v" = "$TAG"
 
       - name: Attach the executables to the release
         env:

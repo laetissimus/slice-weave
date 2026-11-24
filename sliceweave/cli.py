@@ -32,14 +32,17 @@ def main(argv=None):
     r.add_argument("inputs", nargs="+", help="DICOM folders/zips and/or NIfTI stacks (masks: files named *mask*)")
     r.add_argument("-o", "--out", required=True, help="output NIfTI (.nii.gz)")
     r.add_argument("--mode", choices=["adult", "fetal", "flair"], default="adult",
-                   help="adult: single-shot T2 (adult/paediatric); fetal; flair: 2-D multi-shot FLAIR (motion "
+                   help="adult: single-shot T2 (adult/pediatric); fetal; flair: 2-D multi-shot FLAIR (motion "
                         "between series only)")
     r.add_argument("--resolution", type=float)
     r.add_argument("--reference", type=int, help="reference stack number (1 = first); default: least motion")
     r.add_argument("--motion", choices=["none", "stack", "slice"])
     r.add_argument("--cycles", type=int)
-    r.add_argument("--alpha", type=float, help="regularisation weight (default: automatic from the noise)")
-    r.add_argument("--roi-center", help="x,y,z (mm, RAS) of the region centre (fetal: the brain)")
+    r.add_argument("--denoise", choices=["on", "off"], help="non-local means denoising of the final volume "
+                   "(default: on for adult, off for flair and fetal)")
+    r.add_argument("--denoise-strength", type=float, help="non-local means strength (default 1.5; higher = smoother)")
+    r.add_argument("--alpha", type=float, help="regularization weight (default: automatic from the noise)")
+    r.add_argument("--roi-center", help="x,y,z (mm, RAS) of the region center (fetal: the brain)")
     r.add_argument("--roi-size", help="full sizes a,b,c (mm) of the region along the grid axes")
     r.add_argument("--dicom-out", help="also write a de-identified DICOM series to this folder")
     r.add_argument("--report", help="write the report (JSON)")
@@ -139,7 +142,7 @@ def _recon(a):
                     print(f"  mask attached to {st.name}")
     if not stacks:
         sys.exit("no usable stacks")
-    # one contrast per reconstruction: FLAIR stacks in flair mode, single-shot T2 otherwise (when recognised)
+    # one contrast per reconstruction: FLAIR stacks in flair mode, single-shot T2 otherwise (when recognized)
     key = "flair" if a.mode == "flair" else "single_shot"
     if any(st.meta.get(key) for st in stacks):
         for st in stacks:
@@ -156,13 +159,17 @@ def _recon(a):
     ref = (a.reference - 1) if a.reference else int(suggest_reference(stacks, entries, a.mode))
     p = Params.preset(a.mode, resolution=a.resolution, motion=a.motion, cycles=a.cycles, reference=ref)
     p.alpha = a.alpha
+    if a.denoise:
+        p.denoise = a.denoise == "on"
+    if a.denoise_strength:
+        p.denoise_strength = a.denoise_strength
     roi = default_roi(stacks, ref, a.mode)
     if a.roi_center:
         roi.center = np.array([float(v) for v in a.roi_center.split(",")])
     if a.roi_size:
         roi.half = np.array([float(v) for v in a.roi_size.split(",")]) / 2
     if a.mode == "fetal" and not a.roi_center and stacks[ref].mask is None:
-        print("NOTE: fetal mode without --roi-center or a brain mask: the region is the centre of the reference stack")
+        print("NOTE: fetal mode without --roi-center or a brain mask: the region is the center of the reference stack")
     print(f"reference stack: {stacks[ref].name}; {len(stacks)} stacks")
     res = Reconstruction(stacks, roi, p, log=print).run()
     write_nifti(a.out, res.volume, res.grid.affine, f"SliceWeave {VERSION} SRR {MODE_LABELS[a.mode]} RESEARCH")

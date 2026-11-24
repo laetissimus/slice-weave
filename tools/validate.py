@@ -15,9 +15,9 @@ Cases
                  2 partly corrupted slices per stack. Truth and true motion known.
   real-fetal     6 real fetal HASTE stacks (1.5 T, 1.125 x 1.125 x 3 mm) with manual brain masks.
                  No truth: slice-to-volume consistency before/after motion correction.
-  cortex         (only when named; needs --adult-t1) grey-white matter and sulci: pseudo-T2 contrast
+  cortex         (only when named; needs --adult-t1) gray-white matter and sulci: pseudo-T2 contrast
                  (adult and infant) made from the real 3-D head scan, child protocol 0.6 x 0.6 x 3 mm
-                 without gap. Final regularisation weight at three noise levels, output voxel size,
+                 without gap. Final regularization weight at three noise levels, output voxel size,
                  and slice motion within the series (between-series vs slice-to-volume correction).
   cycles         (only when named) number of motion-correction cycles, fetal and adult phantoms.
 
@@ -109,7 +109,7 @@ def adult_case(name, truth, taff, mask_fn, out, log, center=None, cover=None, fo
 
 
 def lesion_contrast(vol, grid, lesions, truth_grid, wm=0.45, lesion=0.95):
-    """Contrast recovery per lesion: (value at the lesion centre - median of the surrounding
+    """Contrast recovery per lesion: (value at the lesion center - median of the surrounding
     white matter) / (true lesion - white-matter difference)."""
     W = grid.vox_to_world(np.indices(grid.shape).reshape(3, -1).T)
     out = []
@@ -147,7 +147,7 @@ def flair_case(out, log):
         st2 = Stack(st.name, st.data, st.slice_aff, st.thickness, None, st.plane, {k: v for k, v in st.meta.items()
                                                                                    if k != "acq_res"})
         plain.append(st2)
-    # same regularisation weights as the main run, so only the point-spread function differs
+    # same regularization weights as the main run, so only the point-spread function differs
     a_fin, a_mot = res.report["alpha_used"], res.report["alpha_motion"]
 
     class SameAlpha(Reconstruction):
@@ -158,11 +158,14 @@ def flair_case(out, log):
     res_px = SameAlpha(plain, roi, Params.preset("flair"), log=lambda m: None).run()
     vol_px = on_grid(res_px.volume, res_px.grid.affine, g)
     # ablation: the noise-calibrated weight of the other modes also for the final volume
-    res_cal = Reconstruction(stacks, roi, Params.preset("flair", alpha=a_mot), log=lambda m: None).run()
+    res_cal = Reconstruction(stacks, roi, Params.preset("flair", alpha=a_mot, denoise=False), log=lambda m: None).run()
+    # with the denoising step (off by default for FLAIR)
+    res_nod = Reconstruction(stacks, roi, Params.preset("flair", denoise=True), log=lambda m: None).run()
+    vol_nod = on_grid(res_nod.volume, res_nod.grid.affine, g)
     vol_cal = on_grid(res_cal.volume, res_cal.grid.affine, g)
     single = stack_on(stacks[0], g)
     vols = {"single_axial_stack": single, "average": res.average, "srr": res.volume, "srr_pixel_psf": vol_px,
-            "srr_noise_calibrated_alpha": vol_cal}
+            "srr_noise_calibrated_alpha": vol_cal, "srr_with_denoising": vol_nod}
     r = {}
     for k, v in vols.items():
         s_ = metrics.fit_scale(v, tg, m)
@@ -212,7 +215,8 @@ def fetal_phantom(out, log):
         return on_grid(truth, taff, res.grid, r.D), inb.reshape(res.grid.shape)
 
     vols = {}
-    for label, kw in [("no_motion_correction", {"motion": "none"}), ("sliceweave", {})]:
+    for label, kw in [("no_motion_correction", {"motion": "none"}), ("sliceweave", {}),
+                      ("sliceweave_with_denoising", {"denoise": True})]:
         rec = Reconstruction(stacks, roi, Params.preset("fetal", **kw), log=lambda m: None)
         rec.prepare()
         e0 = _pose_error(rec, Ts)
@@ -246,7 +250,7 @@ def fetal_phantom(out, log):
     return results
 
 
-# ---------------------------------------------------------------- cortex (grey-white matter, sulci)
+# ---------------------------------------------------------------- cortex (gray-white matter, sulci)
 def _largest(m):
     lab, n = ndi.label(m)
     if n == 0:
@@ -255,9 +259,9 @@ def _largest(m):
 
 
 def pseudo_t2(t1_path, contrast="adult"):
-    """T2-like truth from a 3-D T1 head scan: CSF bright; adult: grey matter brighter than white
-    matter; infant (unmyelinated): white matter brighter than grey matter, lower contrast. Returns
-    the truth, its affine, the normalised T1 (for tissue labels), the brain region and its centre."""
+    """T2-like truth from a 3-D T1 head scan: CSF bright; adult: gray matter brighter than white
+    matter; infant (unmyelinated): white matter brighter than gray matter, lower contrast. Returns
+    the truth, its affine, the normalized T1 (for tissue labels), the brain region and its center."""
     v = read_nifti(t1_path)
     t = (v.data / np.percentile(v.data, 99.5)).astype(np.float32)
     head = _largest(ndi.binary_fill_holes(ndi.binary_closing(t > 0.12, iterations=3)))
@@ -272,8 +276,8 @@ def pseudo_t2(t1_path, contrast="adult"):
 
 
 def cortex_metrics(vol, g, cov, truth, taff, t, brain_ext, D=None):
-    """Brain PSNR / SSIM, and on tissue labels from the T1: grey-white matter contrast recovery,
-    sulcal CSF - grey matter contrast recovery, and the correlation of band-pass detail (0.5-2 mm)
+    """Brain PSNR / SSIM, and on tissue labels from the T1: gray-white matter contrast recovery,
+    sulcal CSF - gray matter contrast recovery, and the correlation of band-pass detail (0.5-2 mm)
     in the cortical ribbon. Only voxels with enough data are evaluated. D: rigid map from the
     reconstruction frame to the truth frame (when the reference stack itself moved)."""
     tr = on_grid(truth, taff, g, D)
@@ -303,7 +307,8 @@ def cortex_metrics(vol, g, cov, truth, taff, t, brain_ext, D=None):
 
 def cortex_case(t1_path, out, log):
     from sliceweave import operators as ops
-    from sliceweave.recon import FINAL_ALPHA_FACTOR, _support
+    from sliceweave.denoise import nlm3d
+    from sliceweave.recon import FINAL_ALPHA_FACTOR, _support, noise_sigma
     res_all = {"protocol": "AX, COR, SAG; 0.6 x 0.6 mm in-plane, 3 mm slices, no gap; bias 15 %; motion between "
                            "series; output 1.0 mm unless stated", "final_alpha_factor": FINAL_ALPHA_FACTOR}
     sim_kw = dict(bias=0.15, cover_mm=126, fov_mm=200, pixel_mm=0.6, thick_mm=3.0, gap_mm=0.0)
@@ -326,11 +331,19 @@ def cortex_case(t1_path, out, log):
         f = rec.norm[rec.ref]
         row = {"contrast": contrast, "noise": noise, "noise_estimated": round(rec.rel_noise, 4),
                "alpha_noise_calibrated": round(rec.alpha_motion, 3), "by_factor": {}}
-        for fa in (1.0, 0.5, 0.35, 0.25, 0.15):
+        for fa in (1.0, 0.5, 0.35, 0.25, 0.15, 0.1):
             x, st = ops.solve(op, ys, ws, x0=rec.x_before_final, alpha=rec.alpha_motion * fa,
                               iters=rec.p.final_iterations, huber=True)
             row["by_factor"][str(fa)] = cortex_metrics(x * f * _support(st["coverage"]), rec.grid, st["coverage"],
                                                        truth, taff, t, be)
+        # the default: 0.25 x 0.4 = 0.1 x the weight, then non-local means (as in Reconstruction.run)
+        x, st = ops.solve(op, ys, ws, x0=rec.x_before_final, alpha=rec.alpha, iters=rec.p.final_iterations, huber=True)
+        sup = _support(st["coverage"])
+        fg = sup > 0.5
+        fg &= x > 0.2 * float(np.percentile(x[fg], 95))
+        x = nlm3d(x, noise_sigma(x, fg), rec.p.denoise_strength)
+        row["denoised_default"] = {"factor": round(rec.alpha / rec.alpha_motion, 3),
+                                   **cortex_metrics(x * f * sup, rec.grid, st["coverage"], truth, taff, t, be)}
         calib.append(row)
         log(f"cortex weight: {json.dumps(row)}")
     res_all["final_weight"] = calib
@@ -452,7 +465,8 @@ def real_fetal(data_dir: Path, out, log):
     ref = int(suggest_reference(stacks, entries, "fetal"))
     results = {"stacks": [s.summary() for s in stacks], "reference": stacks[ref].name}
     vols = {}
-    for label, kw in [("no_motion_correction", {"motion": "none"}), ("sliceweave", {})]:
+    for label, kw in [("no_motion_correction", {"motion": "none"}), ("sliceweave", {}),
+                      ("sliceweave_with_denoising", {"denoise": True})]:
         roi = default_roi(stacks, ref, "fetal")
         rec = Reconstruction(stacks, roi, Params.preset("fetal", reference=ref, **kw), log=lambda m: None)
         res = rec.run()

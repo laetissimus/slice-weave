@@ -2,7 +2,7 @@
 
 Conventions
 -----------
-* World coordinates are millimetres in RAS+ (NIfTI convention).
+* World coordinates are millimeters in RAS+ (NIfTI convention).
 * A rigid transform is a 4x4 matrix acting on world points (column vectors).
 * A :class:`Grid` maps voxel indices (i, j, k) to world points with an affine whose
   linear part is ``R * h`` (orthonormal directions ``R``, isotropic spacing ``h``).
@@ -84,7 +84,7 @@ def rigid_params(T, center) -> tuple[float, float]:
 
 
 def mean_rigid(Ts: list[np.ndarray], center) -> np.ndarray:
-    """Average of rigid transforms (rotation vectors and centre displacements averaged)."""
+    """Average of rigid transforms (rotation vectors and center displacements averaged)."""
     if not Ts:
         return np.eye(4)
     c = np.asarray(center, float)
@@ -140,7 +140,7 @@ class Grid:
 
 def make_grid(R: np.ndarray, center, half_size_mm, spacing: float, margin_mm: float = 0.0,
               fast: bool = True, max_voxels: int | None = None) -> Grid:
-    """Grid with directions R (columns), centred on ``center``, covering +/- half_size + margin."""
+    """Grid with directions R (columns), centered on ``center``, covering +/- half_size + margin."""
     R = np.asarray(R, float)
     half = np.asarray(half_size_mm, float) + margin_mm
     h = float(spacing)

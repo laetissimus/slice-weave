@@ -8,7 +8,7 @@ refused with PermissionError before any packet is sent.
 
 Verification: set SLICEWEAVE_NETTRACE=<file> and every network-related event (allowed or
 blocked) plus every external program started is written to that file as JSON lines.
-`python tools/audit_network.py --trace <file>` summarises it.
+`python tools/audit_network.py --trace <file>` summarizes it.
 
 Limits (see SECURITY.md): external programs (PowerShell for the BitLocker check) run in
 their own processes and are not covered; native code that opens sockets without going through
